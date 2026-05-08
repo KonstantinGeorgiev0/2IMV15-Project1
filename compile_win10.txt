@@ -1,0 +1,13 @@
+Compile under windows 10
+
+- Download from https://sourceforge.net/projects/mingw/ (Links to an external site.) MinGW and install it
+- In MinGW Installation Manager select and install:
+  - mingw32-base
+  - mingw32-gcc-g++
+  - msys-base
+- Add to the Path environment variable the installation locations of MinGW and Msys; typically:  
+  - C:\MinGW\bin and C:\MinGW\msys\1.0\bin
+
+- Go in the folder where you extracted the skeleton code, open a shell window and type make clean and then make. 
+  These commands should compile the skeleton project. If compilation succeeded, the executable project1.exe should be in the bin subfolder.
+

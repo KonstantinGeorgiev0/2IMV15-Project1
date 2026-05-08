@@ -1,0 +1,8 @@
+Compile under MacOS (untested)
+
+
+- Install C/C++ and Makefile Tools packages, follow the instructions on: https://devblogs.microsoft.com/cppblog/now-announcing-makefile-support-in-visual-studio-code/ (Links to an external site.)
+- Replace all uses of "<GL/glut.h>" by "<GLUT/glut.h>"
+- Using HomeBrew, install 'libpng'
+- In Makefile, replace the non-Windows extra flags for 'CXX_EXTRA_FLAGS = -framework GLUT -framework OpenGL -lpng'
+
