@@ -2,6 +2,8 @@
 //
 
 #include "Particle.h"
+#include "Force.h"         // ADDED: So it knows what Force* is
+#include "GravityForce.h"  // ADDED: So it knows what GravityForce is
 #include "SpringForce.h"
 #include "RodConstraint.h"
 #include "CircularWireConstraint.h"
