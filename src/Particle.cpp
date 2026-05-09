@@ -1,5 +1,5 @@
 #include "Particle.h"
-#include <GLUT/glut.h>
+#include <GL/glut.h>
 
 Particle::Particle(const Vec2f & ConstructPos) :
 	m_ConstructPos(ConstructPos),
