@@ -2,11 +2,14 @@
 
 #include "Particle.h"
 
-class SpringForce {
+#include "Force.h" // Including the base class
+
+class SpringForce : public Force { // Inheriting from Force
  public:
   SpringForce(Particle *p1, Particle * p2, double dist, double ks, double kd);
 
-  void draw();
+  void apply() override; // Adding apply method
+  void draw() override;
 
  private:
 
