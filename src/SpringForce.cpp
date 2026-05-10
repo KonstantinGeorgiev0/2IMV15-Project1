@@ -13,3 +13,25 @@ void SpringForce::draw()
   glVertex2f( m_p2->m_Position[0], m_p2->m_Position[1] );
   glEnd();
 }
+
+void SpringForce::apply() {
+  // Calculate vector between particles: l = p1->pos - p2->pos
+  Vec2f l = m_p1->m_Position - m_p2->m_Position;
+
+  // Calculate distance
+  float length = sqrt(l[0]*l[0] + l[1]*l[1]);
+
+  // Calculate relative velocity: v = p1->vel - p2->vel
+  Vec2f v_rel = m_p1->m_Velocity - m_p2->m_Velocity;
+
+  // Normalize l to get the direction of the force
+  Vec2f l_dir = l / length;
+
+  // Hooke's Law + Damping: F = -[ks * (|l| - rest_dist) + kd * ((v1-v2) dot (l / |l|))] * (l / |l|)
+  float force_magnitude = -(m_ks * (length - m_dist) + m_kd * (v_rel * l_dir));
+  Vec2f f = force_magnitude * l_dir;
+
+  // Apply equal and opposite forces (Newton's 3rd Law)
+  m_p1->m_Force += f;
+  m_p2->m_Force -= f;
+}

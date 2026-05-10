@@ -1,9 +1,13 @@
 #include "Particle.h"
 #include <GLUT/glut.h>
 
-Particle::Particle(const Vec2f & ConstructPos) :
-	m_ConstructPos(ConstructPos), m_Position(Vec2f(0.0, 0.0)), m_Velocity(Vec2f(0.0, 0.0))
-{
+Particle::Particle(const Vec2f &ConstructPos) : 
+	m_ConstructPos(ConstructPos), 
+	m_Position(Vec2f(0.0, 0.0)),
+  m_Velocity(Vec2f(0.0, 0.0)), 
+	m_Force(Vec2f(0.0, 0.0)), 
+	m_Mass(1.0f) 
+{  
 }
 
 Particle::~Particle(void)
@@ -25,4 +29,8 @@ void Particle::draw()
 	glVertex2f(m_Position[0]+h/2.0, m_Position[1]+h/2.0);
 	glVertex2f(m_Position[0]-h/2.0, m_Position[1]+h/2.0);
 	glEnd();
+}
+
+void Particle::clearForce() {
+  m_Force = Vec2f(0.0, 0.0);
 }
