@@ -14,3 +14,41 @@ void RodConstraint::draw()
   glEnd();
 
 }
+
+double RodConstraint::C() const
+{
+  Vec2f d = m_p1->m_Position - m_p2->m_Position;
+  if (m_useSqrt) return sqrt(d * d) - m_dist;
+  return d * d - m_dist * m_dist;
+}
+
+double RodConstraint::C_dot() const
+{
+  Vec2f d = m_p1->m_Position - m_p2->m_Position;
+  Vec2f v_rel = m_p1->m_Velocity - m_p2->m_Velocity;
+  if (m_useSqrt) {
+    return (d * v_rel) / sqrt(d * d);
+  }
+  return 2.0 * (d * v_rel);
+}
+
+std::vector<Particle *> RodConstraint::getParticles() const
+{
+  return {m_p1, m_p2};
+}
+
+std::vector<Vec2f> RodConstraint::J_rows() const
+{
+  Vec2f d = m_p1->m_Position - m_p2->m_Position;
+  if (m_useSqrt) {
+    Vec2f d_normalized = d / sqrt(d * d);
+    return {d_normalized, -d_normalized};
+  }
+  return {2.0f * d, -2.0f * d};
+}
+
+std::vector<Vec2f> RodConstraint::J_dot_rows() const
+{
+  Vec2f v_rel = m_p1->m_Velocity - m_p2->m_Velocity;
+  return {2.0f * v_rel, -2.0f * v_rel};
+}
