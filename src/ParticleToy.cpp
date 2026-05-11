@@ -33,6 +33,7 @@ static int dump_frames;
 static int frame_number;
 int solver_type = 0;
 float dt = 0.01f;
+bool use_sqrt_rodConstraint = false;
 
 // cloth variables
 const int cloth_rows = 5; // rows
@@ -294,26 +295,26 @@ static void key_func ( unsigned char key, int x, int y )
 {
 	switch ( key )
 	{
-  case '1':
-    solver_type = 0;
-    printf("Switched to Euler solver.\n");
-    break;
-  case '2':
-    solver_type = 1;
-    printf("Switched to Midpoint solver.\n");
-    break;
-  case '3':
-    solver_type = 2;
-    printf("Switched to RK4 solver.\n");
-    break;
-  case 'p':
-    dt += 0.01f;
-    printf("dt: %f\n", dt);
-    break;
-  case 'o':
-    dt -= 0.01f;
-    printf("dt: %f\n", dt);
-    break;
+	case '1':
+		solver_type = 0;
+		printf("Switched to Euler solver.\n");
+		break;
+	case '2':
+		solver_type = 1;
+		printf("Switched to Midpoint solver.\n");
+		break;
+	case '3':
+		solver_type = 2;
+		printf("Switched to RK4 solver.\n");
+		break;
+	case 'p':
+		dt += 0.01f;
+		printf("dt: %f\n", dt);
+		break;
+	case 'o':
+		dt -= 0.01f;
+		printf("dt: %f\n", dt);
+		break;
 	case 'c':
 	case 'C':
 		clear_data ();
@@ -328,6 +329,17 @@ static void key_func ( unsigned char key, int x, int y )
 	case 'Q':
 		free_data ();
 		exit ( 0 );
+		break;
+
+	case 's':
+		use_sqrt_rodConstraint = !use_sqrt_rodConstraint;
+		for (Constraint* c: cVector) {
+			RodConstraint* rod = dynamic_cast<RodConstraint*>(c);
+			if (rod) {
+				rod->m_useSqrt = use_sqrt_rodConstraint;
+			}
+		}
+		printf("Rod constraint now uses %s.\n", use_sqrt_rodConstraint ? "square root" : "squared distance");
 		break;
 
 	case ' ':
