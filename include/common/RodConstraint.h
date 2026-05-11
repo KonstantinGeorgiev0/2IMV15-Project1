@@ -1,15 +1,19 @@
 #pragma once
 
-#include "Particle.h"
+#include "Constraint.h"
 
-class RodConstraint {
+class RodConstraint : public Constraint {
  public:
   RodConstraint(Particle *p1, Particle * p2, double dist);
 
-  void draw();
+  double C() const override;
+  double C_dot() const override;
+  std::vector<Particle*> getParticles() const override;
+  std::vector<Vec2f> J_rows() const override;
+  std::vector<Vec2f> J_dot_rows() const override;
+  void draw() override;
 
  private:
-
   Particle * const m_p1;
   Particle * const m_p2;
   double const m_dist;
