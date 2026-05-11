@@ -18,4 +18,5 @@ public:
 	Vec2f m_Velocity;
 	Vec2f m_Force;
 	float m_Mass;
+	bool m_Pinned;
 };
