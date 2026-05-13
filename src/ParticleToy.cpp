@@ -10,6 +10,7 @@
 #include "SpringForce.h"
 #include "MouseSpringForce.h"
 #include "Constraint.h"
+#include "PointConstraint.h"
 
 #include <GLUT/glut.h>
 #include <stdio.h>
@@ -34,6 +35,8 @@ static int frame_number;
 int solver_type = 0;
 float dt = 0.01f;
 bool use_sqrt_rodConstraint = false;
+static double mouse_ks = 0.50;  // spring stiffness for mouse interaction
+static double mouse_kd = 0.10;  // damping
 
 // cloth variables
 const int cloth_rows = 5; // rows
@@ -100,24 +103,18 @@ static void init_system(void)
 
 	// particles to be affected by gravity
 	std::vector<Particle*> gravityParticles;
-	const Vec2f center(0.0, 0.0);
 	const Vec2f gravityDirection(0.0, -1.0);
 	const float gravityStrength = 0.1f;
+	const Vec2f center(0.0, 0.0);
 	const float dist = 0.5f;
 
-
-	// create particles in a 1d vector using row major order
+	// create cloth particles in row major order
 	for (int i =0; i < cloth_rows; ++i) {
 		for (int j = 0; j < cloth_columns; ++j) {
 			float x = j * cloth_spacing - (cloth_columns - 1) * cloth_spacing / 2.0f; // center the cloth
 			float y = 0.5f - i * cloth_spacing; // start from y=0.5 and go down
 			pVector.push_back(new Particle(Vec2f(x, y)));
 		}
-	}
-
-	// pin the top row to make it immovable
-	for (int j = 0; j < cloth_columns; ++j) {
-		pVector[j]->m_Pinned = true;
 	}
 
 	// cloth spring connectivity
@@ -154,20 +151,23 @@ static void init_system(void)
 		}
 	}
 
-	// add gravity to all except first row of particles
+	// add gravity to all particles
+	fVector.push_back(new GravityForce(pVector, gravityDirection * gravityStrength));
+
+	// fix top row particles
 	for (int j = 0; j < cloth_columns; ++j) {
-		for (int i = 1; i < cloth_rows; ++i) {
-			gravityParticles.push_back(pVector[i * cloth_columns + j]);
-		}
-		fVector.push_back(new GravityForce(gravityParticles, gravityDirection * gravityStrength));
-		gravityParticles.clear();
+		Particle* p = pVector[j];
+		// x dir fix
+		cVector.push_back(new PointConstraintX(p, p->m_ConstructPos[0]));
+		// y dir fix
+		cVector.push_back(new PointConstraintY(p, p->m_ConstructPos[1]));
 	}
 
-	// add circular wire constraint
-	cVector.push_back(new CircularWireConstraint(pVector[12], center, dist));
+	// // add circular wire constraint
+	// cVector.push_back(new CircularWireConstraint(pVector[12], center, dist));
 
-	// add rod constraint
-	cVector.push_back(new RodConstraint(pVector[0], pVector[24], dist));
+	// // add rod constraint
+	// cVector.push_back(new RodConstraint(pVector[0], pVector[24], dist));
 }
 
 /*
@@ -308,11 +308,11 @@ static void key_func ( unsigned char key, int x, int y )
 		printf("Switched to RK4 solver.\n");
 		break;
 	case 'p':
-		dt += 0.01f;
+		dt += 0.001f;
 		printf("dt: %f\n", dt);
 		break;
 	case 'o':
-		dt -= 0.01f;
+		dt -= 0.001f;
 		printf("dt: %f\n", dt);
 		break;
 	case 'c':
@@ -347,6 +347,46 @@ static void key_func ( unsigned char key, int x, int y )
 		// clear the sim data if switch from sim to constr mode
 		if (!dsim) clear_data();
 		break;
+
+	case 'i':
+		mouse_ks += 0.05;
+		printf("mouse_ks (spring stiffness): %f\n", mouse_ks);
+		break;
+
+	case 'u':
+		mouse_ks -= 0.05;
+		if (mouse_ks < 0) mouse_ks = 0;
+		printf("mouse_ks (spring stiffness): %f\n", mouse_ks);
+		break;
+
+	case 'k':
+		mouse_kd += 0.05;
+		printf("mouse_kd (damping): %f\n", mouse_kd);
+		break;
+
+	case 'j':
+		mouse_kd -= 0.05;
+		if (mouse_kd < 0) mouse_kd = 0;
+		printf("mouse_kd (damping): %f\n", mouse_kd);
+		break;
+
+	case 'h':
+		printf("\n=== Keyboard Controls ===\n");
+		printf("1/2/3     - Switch solver (Euler/Midpoint/RK4)\n");
+		printf("p/o       - Increase/decrease dt (timestep)\n");
+		printf("i/u       - Increase/decrease mouse spring stiffness\n");
+		printf("k/j       - Increase/decrease mouse damping\n");
+		printf("s         - Toggle sqrt formula for rod constraints\n");
+		printf("c         - Clear/reset simulation\n");
+		printf("d         - Toggle frame dumping\n");
+		printf("space     - Toggle simulation/construction mode\n");
+		printf("q         - Quit\n");
+		printf("Current values:\n");
+		printf("  dt: %f\n", dt);
+		printf("  mouse_ks: %f\n", mouse_ks);
+		printf("  mouse_kd: %f\n", mouse_kd);
+		printf("========================\n\n");
+		break;
 	}
 }
 
@@ -373,7 +413,7 @@ static void mouse_func ( int button, int state, int x, int y )
             }
         }
         if (nearest) {
-            mouseSpring = new MouseSpringForce(nearest, 2.0, 0.5);
+            mouseSpring = new MouseSpringForce(nearest, mouse_ks, mouse_kd);
             mouseSpring->updateMousePosition(worldPos[0], worldPos[1]);
             fVector.push_back(mouseSpring);
         }
@@ -484,7 +524,7 @@ int main ( int argc, char ** argv )
 
 	if ( argc == 1 ) {
 		N = 64;
-		dt = 0.1f;
+		dt = 0.05f;
 		d = 5.f;
 		fprintf ( stderr, "Using defaults : N=%d dt=%g d=%g\n",
 			N, dt, d );
