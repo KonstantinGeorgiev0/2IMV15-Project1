@@ -4,7 +4,7 @@
 
 class RodConstraint : public Constraint {
  public:
-  RodConstraint(Particle *p1, Particle * p2, double dist);
+  RodConstraint(Particle *p1, Particle * p2, double dist, bool useSqrt);
 
   double C() const override;
   double C_dot() const override;

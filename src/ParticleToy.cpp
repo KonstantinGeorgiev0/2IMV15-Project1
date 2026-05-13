@@ -11,6 +11,7 @@
 #include "MouseSpringForce.h"
 #include "Constraint.h"
 #include "PointConstraint.h"
+#include "WindForce.h"
 
 #include <GLUT/glut.h>
 #include <stdio.h>
@@ -34,14 +35,20 @@ static int dump_frames;
 static int frame_number;
 int solver_type = 0;
 float dt = 0.01f;
-bool use_sqrt_rodConstraint = false;
+bool use_sqrt_rodConstraint = true;
 static double mouse_ks = 0.50;  // spring stiffness for mouse interaction
 static double mouse_kd = 0.10;  // damping
+static WindForce* windForce = NULL; // global pointer to the wind force
+static Vec2f windDirection(-1.0, 0.0); // blow left
+static float windStrength = 0.05f;
+static bool enableWind = false; // toggle wind force
 
 // cloth variables
 const int cloth_rows = 5; // rows
 const int cloth_columns = 5; // columns
 const float cloth_spacing = 0.1f; // spacing between particles in the cloth
+double ks = 10.0f; // spring stiffness for cloth springs
+double kd = 3.5f; // damping for cloth springs
 
 // static Particle *pList;
 static std::vector<Particle *> pVector;
@@ -102,17 +109,17 @@ static void init_system(void)
   	free_data();
 
 	// particles to be affected by gravity
-	std::vector<Particle*> gravityParticles;
+	// std::vector<Particle*> gravityParticles;
 	const Vec2f gravityDirection(0.0, -1.0);
 	const float gravityStrength = 0.1f;
-	const Vec2f center(0.0, 0.0);
-	const float dist = 0.5f;
+	// const Vec2f center(0.0, 0.0);
+	// const float dist = 0.5f;
 
 	// create cloth particles in row major order
-	for (int i =0; i < cloth_rows; ++i) {
+	for (int i = 0; i < cloth_rows; ++i) {
 		for (int j = 0; j < cloth_columns; ++j) {
 			float x = j * cloth_spacing - (cloth_columns - 1) * cloth_spacing / 2.0f; // center the cloth
-			float y = 0.5f - i * cloth_spacing; // start from y=0.5 and go down
+			float y = 0.9f - i * cloth_spacing; // start from almost top and go down
 			pVector.push_back(new Particle(Vec2f(x, y)));
 		}
 	}
@@ -124,29 +131,37 @@ static void init_system(void)
 			// structural springs
 			// connect to particle on the right
 			if (j < cloth_columns - 1) {
-				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + 1], cloth_spacing, 1.0, 0.5));
+				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + 1], cloth_spacing, ks, kd));
+				// add structural spring to rod constraint
+				// cVector.push_back(new RodConstraint(pVector[idx], pVector[idx + 1], cloth_spacing, use_sqrt_rodConstraint));
 			}
 			// connect to particle below
 			if (i < cloth_rows - 1) {
-				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + cloth_columns], cloth_spacing, 1.0, 0.5));
+				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + cloth_columns], cloth_spacing, ks, kd));
+				// add this as well
+				// cVector.push_back(new RodConstraint(pVector[idx], pVector[idx + cloth_columns], cloth_spacing, use_sqrt_rodConstraint));
 			}
 			// shear springs
 			// connect to particle diagonally down-right
 			if (i < cloth_rows - 1 && j < cloth_columns - 1) {
-				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + cloth_columns + 1], cloth_spacing * sqrt(2), 1.0, 0.5));
+				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + cloth_columns + 1], cloth_spacing * sqrt(2), ks, kd));
 			}
 			// connect to particle diagonally down-left
 			if (i < cloth_rows - 1 && j > 0) {
-				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + cloth_columns - 1], cloth_spacing * sqrt(2), 1.0, 0.5));
+				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + cloth_columns - 1], cloth_spacing * sqrt(2), ks, kd));
 			}
 			// flexion springs
 			// horizontal (right + 2)
 			if (j < cloth_columns - 2) {
-				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + 2], cloth_spacing * 2, 1.0, 0.5));
+				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + 2], cloth_spacing * 2, ks, kd));
 			}
 			// vertical (down + 2)
 			if (i < cloth_rows - 2) {
-				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + 2 * cloth_columns], cloth_spacing * 2, 1.0, 0.5));
+				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + 2 * cloth_columns], cloth_spacing * 2, ks, kd));
+			}
+			// horizontal (right + 2) and vertical (down + 2)
+			if (i < cloth_rows - 2 && j < cloth_columns - 2) {
+				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + 2 * cloth_columns + 2], cloth_spacing * sqrt(8), ks, kd));
 			}
 		}
 	}
@@ -162,6 +177,16 @@ static void init_system(void)
 		// y dir fix
 		cVector.push_back(new PointConstraintY(p, p->m_ConstructPos[1]));
 	}
+
+	// // fix top row corners
+	// cVector.push_back(new PointConstraintX(pVector[0], pVector[0]->m_ConstructPos[0]));
+	// cVector.push_back(new PointConstraintY(pVector[0], pVector[0]->m_ConstructPos[1]));
+	// cVector.push_back(new PointConstraintX(pVector[cloth_columns - 1], pVector[cloth_columns - 1]->m_ConstructPos[0]));
+	// cVector.push_back(new PointConstraintY(pVector[cloth_columns - 1], pVector[cloth_columns - 1]->m_ConstructPos[1]));
+
+	// add wind force
+	windForce = new WindForce(pVector, windDirection, windStrength, enableWind);
+	fVector.push_back(windForce);
 
 	// // add circular wire constraint
 	// cVector.push_back(new CircularWireConstraint(pVector[12], center, dist));
@@ -220,6 +245,21 @@ static void draw_particles ( void )
 	{
 		pVector[ii]->draw();
 	}
+}
+
+static void draw_walls ( void ) 
+{
+	glBegin( GL_LINES );
+	glColor3f(0.8, 0.8, 0.8);
+	glVertex2f( -0.9f, 0.9f );
+	glVertex2f( -0.9f, -0.9f );
+
+	glVertex2f( -0.9f, -0.9f );
+	glVertex2f( 0.9f, -0.9f );
+
+	glVertex2f( 0.9f, -0.9f );
+	glVertex2f( 0.9f, 0.9f );
+	glEnd();
 }
 
 static void draw_forces ( void )
@@ -349,25 +389,33 @@ static void key_func ( unsigned char key, int x, int y )
 		break;
 
 	case 'i':
-		mouse_ks += 0.05;
-		printf("mouse_ks (spring stiffness): %f\n", mouse_ks);
+		ks += 0.5;
+		printf("ks (spring stiffness): %f\n", ks);
 		break;
 
 	case 'u':
-		mouse_ks -= 0.05;
-		if (mouse_ks < 0) mouse_ks = 0;
-		printf("mouse_ks (spring stiffness): %f\n", mouse_ks);
+		ks -= 0.5;
+		if (ks < 0) ks = 0;
+		printf("ks (spring stiffness): %f\n", ks);
 		break;
 
 	case 'k':
-		mouse_kd += 0.05;
-		printf("mouse_kd (damping): %f\n", mouse_kd);
+		kd += 0.5;
+		printf("kd (damping): %f\n", kd);
 		break;
 
 	case 'j':
-		mouse_kd -= 0.05;
-		if (mouse_kd < 0) mouse_kd = 0;
-		printf("mouse_kd (damping): %f\n", mouse_kd);
+		kd -= 0.5;
+		if (kd < 0) kd = 0;
+		printf("kd (damping): %f\n", kd);
+		break;
+
+	case 'w':
+		enableWind = !enableWind;
+		if (windForce) {
+			windForce->setEnabled(enableWind);
+		}
+		printf("Wind %s\n", enableWind ? "enabled" : "disabled");
 		break;
 
 	case 'h':
@@ -475,6 +523,7 @@ static void display_func ( void )
 	draw_forces();
 	draw_constraints();
 	draw_particles();
+	draw_walls();
 
 	post_display ();
 }

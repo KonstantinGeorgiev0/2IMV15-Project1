@@ -20,6 +20,7 @@ void SpringForce::apply() {
 
   // Calculate distance
   float length = sqrt(l[0]*l[0] + l[1]*l[1]);
+  if (length < 1e-6) return; // avoid division by zero
 
   // Calculate relative velocity: v = p1->vel - p2->vel
   Vec2f v_rel = m_p1->m_Velocity - m_p2->m_Velocity;
