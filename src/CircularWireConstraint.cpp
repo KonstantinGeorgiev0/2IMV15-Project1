@@ -1,5 +1,5 @@
 #include "CircularWireConstraint.h"
-#include <GLUT/glut.h>
+#include <GL/glut.h>
 
 #define PI 3.1415926535897932384626433832795
 
