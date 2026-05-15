@@ -195,19 +195,3 @@ extern void simulation_step( std::vector<Particle*> pVector,
 		case 2: rk4_step(pVector, fVector, cVector, dt); break;
 	}
 }
-
-    for (Force *f : forces)
-    {
-        f->apply();
-    }
-
-    solve_constraints(pVector, constraints);
-
-    for (int i = 0; i < size; i++)
-    {
-        Particle *p = pVector[i];
-        Vec2f acceleration = p->m_Force / p->m_Mass;
-        p->m_Velocity += dt * acceleration;
-        p->m_Position += dt * p->m_Velocity;
-    }
-}

@@ -1,5 +1,5 @@
 #include "RodConstraint.h"
-#include <GL/glut.h>
+#include <GLUT/glut.h>
 
 RodConstraint::RodConstraint(Particle *p1, Particle * p2, double dist, bool useSqrt)
     : m_useSqrt(useSqrt), m_p1(p1), m_p2(p2), m_dist(dist) {}

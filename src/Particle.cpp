@@ -1,5 +1,5 @@
 #include "Particle.h"
-#include <GL/glut.h>
+#include <GLUT/glut.h>
 
 Particle::Particle(const Vec2f &ConstructPos) : 
 	m_ConstructPos(ConstructPos), 
@@ -20,12 +20,6 @@ void Particle::reset()
 	m_Position = m_ConstructPos;
 	m_Velocity = Vec2f(0.0, 0.0);
 	m_Force = Vec2f(0.0, 0.0); // UPDATED: Also clear force on full reset
-}
-
-// ADDED: Simple helper to zero out forces
-void Particle::clearForce()
-{
-	m_Force = Vec2f(0.0, 0.0);
 }
 
 void Particle::draw()
