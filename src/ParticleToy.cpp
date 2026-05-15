@@ -61,9 +61,6 @@ static int mouse_shiftclick[3];
 static int omx, omy, mx, my;
 static int hmx, hmy;
 
-// static SpringForce *delete_this_dummy_spring = NULL;
-// static RodConstraint *delete_this_dummy_rod = NULL;
-// static CircularWireConstraint *delete_this_dummy_wire = NULL;
 static std::vector<Constraint *> cVector;
 
 static MouseSpringForce* mouseSpring = NULL;
