@@ -12,6 +12,7 @@
 #include "Constraint.h"
 #include "PointConstraint.h"
 #include "WindForce.h"
+#include "CollisionHandler.h"
 
 #include <GLUT/glut.h>
 #include <stdio.h>
@@ -40,15 +41,18 @@ static double mouse_ks = 0.50;  // spring stiffness for mouse interaction
 static double mouse_kd = 0.10;  // damping
 static WindForce* windForce = NULL; // global pointer to the wind force
 static Vec2f windDirection(-1.0, 0.0); // blow left
-static float windStrength = 0.05f;
+static float windStrength = 0.15f;
 static bool enableWind = false; // toggle wind force
 
 // cloth variables
-const int cloth_rows = 5; // rows
-const int cloth_columns = 5; // columns
-const float cloth_spacing = 0.1f; // spacing between particles in the cloth
-double ks = 10.0f; // spring stiffness for cloth springs
-double kd = 3.5f; // damping for cloth springs
+const int cloth_rows = 10; // rows
+const int cloth_columns = 10; // columns
+const float cloth_spacing = 0.05f; // spacing between particles in the cloth
+double spring_ks = 10.0f; // spring stiffness for cloth springs
+double spring_kd = 3.5f; // damping for cloth springs
+float wall_restitution = 0.5f; // restitution coefficient for wall collisions
+float wall_friction_coeff = 0.1f; // friction coefficient for wall collisions
+float particle_diameter = 0.045f; // diameter of each particle
 
 // static Particle *pList;
 static std::vector<Particle *> pVector;
@@ -128,37 +132,37 @@ static void init_system(void)
 			// structural springs
 			// connect to particle on the right
 			if (j < cloth_columns - 1) {
-				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + 1], cloth_spacing, ks, kd));
+				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + 1], cloth_spacing, spring_ks, spring_kd));
 				// add structural spring to rod constraint
 				// cVector.push_back(new RodConstraint(pVector[idx], pVector[idx + 1], cloth_spacing, use_sqrt_rodConstraint));
 			}
 			// connect to particle below
 			if (i < cloth_rows - 1) {
-				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + cloth_columns], cloth_spacing, ks, kd));
+				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + cloth_columns], cloth_spacing, spring_ks, spring_kd));
 				// add this as well
 				// cVector.push_back(new RodConstraint(pVector[idx], pVector[idx + cloth_columns], cloth_spacing, use_sqrt_rodConstraint));
 			}
 			// shear springs
 			// connect to particle diagonally down-right
 			if (i < cloth_rows - 1 && j < cloth_columns - 1) {
-				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + cloth_columns + 1], cloth_spacing * sqrt(2), ks, kd));
+				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + cloth_columns + 1], cloth_spacing * sqrt(2), spring_ks, spring_kd));
 			}
 			// connect to particle diagonally down-left
 			if (i < cloth_rows - 1 && j > 0) {
-				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + cloth_columns - 1], cloth_spacing * sqrt(2), ks, kd));
+				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + cloth_columns - 1], cloth_spacing * sqrt(2), spring_ks, spring_kd));
 			}
 			// flexion springs
 			// horizontal (right + 2)
 			if (j < cloth_columns - 2) {
-				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + 2], cloth_spacing * 2, ks, kd));
+				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + 2], cloth_spacing * 2, spring_ks, spring_kd));
 			}
 			// vertical (down + 2)
 			if (i < cloth_rows - 2) {
-				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + 2 * cloth_columns], cloth_spacing * 2, ks, kd));
+				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + 2 * cloth_columns], cloth_spacing * 2, spring_ks, spring_kd));
 			}
 			// horizontal (right + 2) and vertical (down + 2)
 			if (i < cloth_rows - 2 && j < cloth_columns - 2) {
-				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + 2 * cloth_columns + 2], cloth_spacing * sqrt(8), ks, kd));
+				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + 2 * cloth_columns + 2], cloth_spacing * sqrt(8), spring_ks, spring_kd));
 			}
 		}
 	}
@@ -166,20 +170,20 @@ static void init_system(void)
 	// add gravity to all particles
 	fVector.push_back(new GravityForce(pVector, gravityDirection * gravityStrength));
 
-	// fix top row particles
-	for (int j = 0; j < cloth_columns; ++j) {
-		Particle* p = pVector[j];
-		// x dir fix
-		cVector.push_back(new PointConstraintX(p, p->m_ConstructPos[0]));
-		// y dir fix
-		cVector.push_back(new PointConstraintY(p, p->m_ConstructPos[1]));
-	}
+	// // fix top row particles
+	// for (int j = 0; j < cloth_columns; ++j) {
+	// 	Particle* p = pVector[j];
+	// 	// x dir fix
+	// 	cVector.push_back(new PointConstraintX(p, p->m_ConstructPos[0]));
+	// 	// y dir fix
+	// 	cVector.push_back(new PointConstraintY(p, p->m_ConstructPos[1]));
+	// }
 
-	// // fix top row corners
-	// cVector.push_back(new PointConstraintX(pVector[0], pVector[0]->m_ConstructPos[0]));
-	// cVector.push_back(new PointConstraintY(pVector[0], pVector[0]->m_ConstructPos[1]));
-	// cVector.push_back(new PointConstraintX(pVector[cloth_columns - 1], pVector[cloth_columns - 1]->m_ConstructPos[0]));
-	// cVector.push_back(new PointConstraintY(pVector[cloth_columns - 1], pVector[cloth_columns - 1]->m_ConstructPos[1]));
+	// fix top row corners
+	cVector.push_back(new PointConstraintX(pVector[0], pVector[0]->m_ConstructPos[0]));
+	cVector.push_back(new PointConstraintY(pVector[0], pVector[0]->m_ConstructPos[1]));
+	cVector.push_back(new PointConstraintX(pVector[cloth_columns - 1], pVector[cloth_columns - 1]->m_ConstructPos[0]));
+	cVector.push_back(new PointConstraintY(pVector[cloth_columns - 1], pVector[cloth_columns - 1]->m_ConstructPos[1]));
 
 	// add wind force
 	windForce = new WindForce(pVector, windDirection, windStrength, enableWind);
@@ -242,21 +246,6 @@ static void draw_particles ( void )
 	{
 		pVector[ii]->draw();
 	}
-}
-
-static void draw_walls ( void ) 
-{
-	glBegin( GL_LINES );
-	glColor3f(0.8, 0.8, 0.8);
-	glVertex2f( -0.9f, 0.9f );
-	glVertex2f( -0.9f, -0.9f );
-
-	glVertex2f( -0.9f, -0.9f );
-	glVertex2f( 0.9f, -0.9f );
-
-	glVertex2f( 0.9f, -0.9f );
-	glVertex2f( 0.9f, 0.9f );
-	glEnd();
 }
 
 static void draw_forces ( void )
@@ -386,25 +375,25 @@ static void key_func ( unsigned char key, int x, int y )
 		break;
 
 	case 'i':
-		ks += 0.5;
-		printf("ks (spring stiffness): %f\n", ks);
+		spring_ks += 0.5;
+		printf("spring_ks (spring stiffness): %f\n", spring_ks);
 		break;
 
 	case 'u':
-		ks -= 0.5;
-		if (ks < 0) ks = 0;
-		printf("ks (spring stiffness): %f\n", ks);
+		spring_ks -= 0.5;
+		if (spring_ks < 0) spring_ks = 0;
+		printf("spring_ks (spring damping): %f\n", spring_ks);
 		break;
 
 	case 'k':
-		kd += 0.5;
-		printf("kd (damping): %f\n", kd);
+		spring_kd += 0.5;
+		printf("spring_kd (damping): %f\n", spring_kd);
 		break;
 
 	case 'j':
-		kd -= 0.5;
-		if (kd < 0) kd = 0;
-		printf("kd (damping): %f\n", kd);
+		spring_kd -= 0.5;
+		if (spring_kd < 0) spring_kd = 0;
+		printf("spring_kd (damping): %f\n", spring_kd);
 		break;
 
 	case 'w':
@@ -506,8 +495,14 @@ static void reshape_func ( int width, int height )
 
 static void idle_func ( void )
 {
-	if ( dsim ) simulation_step( pVector, fVector, cVector, dt );
-	else        {get_from_UI();remap_GUI();}
+	if ( dsim ) {
+		simulation_step( pVector, fVector, cVector, dt );
+		CollisionHandler::handleWallCollisions(pVector, wall_restitution, wall_friction_coeff);
+		CollisionHandler::handleParticleCollisions(pVector, particle_diameter, wall_restitution);
+	} else {
+		get_from_UI();
+		remap_GUI();
+	}
 
 	glutSetWindow ( win_id );
 	glutPostRedisplay ();
@@ -520,7 +515,7 @@ static void display_func ( void )
 	draw_forces();
 	draw_constraints();
 	draw_particles();
-	draw_walls();
+	CollisionHandler::drawWalls();
 
 	post_display ();
 }
@@ -584,6 +579,22 @@ int main ( int argc, char ** argv )
 	printf ( "\t Toggle construction/simulation display with the spacebar key\n" );
 	printf ( "\t Dump frames by pressing the 'd' key\n" );
 	printf ( "\t Quit by pressing the 'q' key\n" );
+
+	printf("\n=== Keyboard Controls ===\n");
+	printf("1/2/3     - Switch solver (Euler/Midpoint/RK4)\n");
+	printf("p/o       - Increase/decrease dt (timestep)\n");
+	printf("i/u       - Increase/decrease mouse spring stiffness\n");
+	printf("k/j       - Increase/decrease mouse damping\n");
+	printf("s         - Toggle sqrt formula for rod constraints\n");
+	printf("c         - Clear/reset simulation\n");
+	printf("d         - Toggle frame dumping\n");
+	printf("space     - Toggle simulation/construction mode\n");
+	printf("q         - Quit\n");
+	printf("Current values:\n");
+	printf("  dt: %f\n", dt);
+	printf("  spring_ks: %f\n", spring_ks);
+	printf("  spring_kd: %f\n", spring_kd);
+	printf("========================\n\n");
 
 	dsim = 0;
 	dump_frames = 0;
