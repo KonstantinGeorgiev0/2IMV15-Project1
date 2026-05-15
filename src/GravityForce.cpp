@@ -9,11 +9,9 @@ GravityForce::GravityForce(const std::vector<Particle*>& particles, const Vec2f&
 
 void GravityForce::apply() {
     for (Particle* p : m_particles) {
-        // i.e., F = m * g
         p->m_Force += p->m_Mass * m_gravity;
     }
 }
 
 void GravityForce::draw() {
-    // NB: Gravity is invisible, so we don't draw anything per se.
 }

@@ -1,38 +1,57 @@
 // ParticleToy.cpp : Defines the entry point for the console application.
 //
 
+#include "CircularWireConstraint.h"
 #include "Particle.h"
-#include "Force.h"         // ADDED: So it knows what Force* is
-#include "GravityForce.h"  // ADDED: So it knows what GravityForce is
-#include "SpringForce.h"
 #include "RodConstraint.h"
 #include "CircularWireConstraint.h"
 #include "imageio.h"
+#include "GravityForce.h"
+#include "SpringForce.h"
+#include "MouseSpringForce.h"
 #include "Constraint.h"
+#include "PointConstraint.h"
+#include "WindForce.h"
 
-#include <vector>
-#include <stdlib.h>
+#include <GLUT/glut.h>
 #include <stdio.h>
-#include <GL/glut.h>
+#include <stdlib.h>
+#include <vector>
 
 /* macros */
 
 /* external definitions (from solver) */
-extern void simulation_step( std::vector<Particle*> pVector,
-                             std::vector<Force*> forces,
-                             std::vector<Constraint*> constraints,
-                             float dt );
+extern void simulation_step( std::vector<Particle *> pVector, 
+	std::vector<Force *> fVector,
+	std::vector<Constraint *> cVector, 
+	float dt );
 
 /* global variables */
 
 static int N;
-static float dt, d;
+static float d;
 static int dsim;
 static int dump_frames;
 static int frame_number;
+int solver_type = 0;
+float dt = 0.01f;
+bool use_sqrt_rodConstraint = true;
+static double mouse_ks = 0.50;  // spring stiffness for mouse interaction
+static double mouse_kd = 0.10;  // damping
+static WindForce* windForce = NULL; // global pointer to the wind force
+static Vec2f windDirection(-1.0, 0.0); // blow left
+static float windStrength = 0.05f;
+static bool enableWind = false; // toggle wind force
+
+// cloth variables
+const int cloth_rows = 5; // rows
+const int cloth_columns = 5; // columns
+const float cloth_spacing = 0.1f; // spacing between particles in the cloth
+double ks = 10.0f; // spring stiffness for cloth springs
+double kd = 3.5f; // damping for cloth springs
 
 // static Particle *pList;
-static std::vector<Particle*> pVector;
+static std::vector<Particle *> pVector;
 
 static int win_id;
 static int win_x, win_y;
@@ -42,13 +61,10 @@ static int mouse_shiftclick[3];
 static int omx, omy, mx, my;
 static int hmx, hmy;
 
-// 1. Removing the dummy spring
-// static SpringForce * delete_this_dummy_spring = NULL;
+static std::vector<Constraint *> cVector;
 
-static std::vector<Constraint*> constraints;
-
-// 2. Add the generalized list
-static std::vector<Force*> forces;
+static MouseSpringForce* mouseSpring = NULL;
+static std::vector <Force*> fVector;
 
 /*
 ----------------------------------------------------------------------
@@ -58,31 +74,21 @@ free/clear/allocate simulation data
 
 static void free_data ( void )
 {
-
-	// if (delete_this_dummy_rod) {
-	// 	delete delete_this_dummy_rod;
-	// 	delete_this_dummy_rod = NULL;
-	// }
-
-	// OLD CODE:
-	// if (delete_this_dummy_spring) {
-	// 	delete delete_this_dummy_spring;
-	// 	delete_this_dummy_spring = NULL;
-	// }
-
-	// 4. Cleaning up the memory
-	for (Force* f : forces) delete f;
-	forces.clear();
-
-	// if (delete_this_dummy_wire) {
-	// 	delete delete_this_dummy_wire;
-	// 	delete_this_dummy_wire = NULL;
-	// }
-	for (Particle* p : pVector) delete p;
-    pVector.clear();
-
-    for (Constraint* c : constraints) delete c;
-    constraints.clear();
+	// clean up particles, forces and constraints
+	for (size_t i = 0; i < pVector.size(); i++) {
+		delete pVector[i];
+	}
+	pVector.clear();
+	
+	for (size_t i = 0; i < fVector.size(); i++) {
+		delete fVector[i];
+	}
+	fVector.clear();
+	
+	for (size_t i = 0; i < cVector.size(); i++) {
+		delete cVector[i];
+	}
+	cVector.clear();
 }
 
 static void clear_data ( void )
@@ -96,28 +102,94 @@ static void clear_data ( void )
 
 static void init_system(void)
 {
-	const double dist = 0.2;
-	const Vec2f center(0.0, 0.0);
-	const Vec2f offset(dist, 0.0);
+  	// clean up from previous runs
+  	free_data();
 
-	// Create three particles, attach them to each other, then add a
-	// circular wire constraint to the first.
+	// particles to be affected by gravity
+	// std::vector<Particle*> gravityParticles;
+	const Vec2f gravityDirection(0.0, -1.0);
+	const float gravityStrength = 0.1f;
+	// const Vec2f center(0.0, 0.0);
+	// const float dist = 0.5f;
 
-	pVector.push_back(new Particle(center + offset));
-	pVector.push_back(new Particle(center + offset + offset));
-	pVector.push_back(new Particle(center + offset + offset + offset));
-	
-	// You shoud replace these with a vector generalized forces and one of
-	// constraints...
-	// OLD, from the original code:
-	// delete_this_dummy_spring = new SpringForce(pVector[0], pVector[1], dist, 1.0, 1.0);
+	// create cloth particles in row major order
+	for (int i = 0; i < cloth_rows; ++i) {
+		for (int j = 0; j < cloth_columns; ++j) {
+			float x = j * cloth_spacing - (cloth_columns - 1) * cloth_spacing / 2.0f; // center the cloth
+			float y = 0.9f - i * cloth_spacing; // start from almost top and go down
+			pVector.push_back(new Particle(Vec2f(x, y)));
+		}
+	}
 
-	// 3. Creating the forces and pushing them to the list
-	forces.push_back(new GravityForce(pVector, Vec2f(0.0, -9.81)));
-	forces.push_back(new SpringForce(pVector[0], pVector[1], dist, 100.0, 1.0));
+	// cloth spring connectivity
+	for (int i = 0; i < cloth_rows; ++i) {
+		for (int j = 0; j < cloth_columns; ++j) {
+			int idx = i * cloth_columns + j;
+			// structural springs
+			// connect to particle on the right
+			if (j < cloth_columns - 1) {
+				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + 1], cloth_spacing, ks, kd));
+				// add structural spring to rod constraint
+				// cVector.push_back(new RodConstraint(pVector[idx], pVector[idx + 1], cloth_spacing, use_sqrt_rodConstraint));
+			}
+			// connect to particle below
+			if (i < cloth_rows - 1) {
+				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + cloth_columns], cloth_spacing, ks, kd));
+				// add this as well
+				// cVector.push_back(new RodConstraint(pVector[idx], pVector[idx + cloth_columns], cloth_spacing, use_sqrt_rodConstraint));
+			}
+			// shear springs
+			// connect to particle diagonally down-right
+			if (i < cloth_rows - 1 && j < cloth_columns - 1) {
+				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + cloth_columns + 1], cloth_spacing * sqrt(2), ks, kd));
+			}
+			// connect to particle diagonally down-left
+			if (i < cloth_rows - 1 && j > 0) {
+				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + cloth_columns - 1], cloth_spacing * sqrt(2), ks, kd));
+			}
+			// flexion springs
+			// horizontal (right + 2)
+			if (j < cloth_columns - 2) {
+				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + 2], cloth_spacing * 2, ks, kd));
+			}
+			// vertical (down + 2)
+			if (i < cloth_rows - 2) {
+				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + 2 * cloth_columns], cloth_spacing * 2, ks, kd));
+			}
+			// horizontal (right + 2) and vertical (down + 2)
+			if (i < cloth_rows - 2 && j < cloth_columns - 2) {
+				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + 2 * cloth_columns + 2], cloth_spacing * sqrt(8), ks, kd));
+			}
+		}
+	}
 
-	constraints.push_back(new RodConstraint(pVector[1], pVector[2], dist));
-	constraints.push_back(new CircularWireConstraint(pVector[0], center, dist));
+	// add gravity to all particles
+	fVector.push_back(new GravityForce(pVector, gravityDirection * gravityStrength));
+
+	// fix top row particles
+	for (int j = 0; j < cloth_columns; ++j) {
+		Particle* p = pVector[j];
+		// x dir fix
+		cVector.push_back(new PointConstraintX(p, p->m_ConstructPos[0]));
+		// y dir fix
+		cVector.push_back(new PointConstraintY(p, p->m_ConstructPos[1]));
+	}
+
+	// // fix top row corners
+	// cVector.push_back(new PointConstraintX(pVector[0], pVector[0]->m_ConstructPos[0]));
+	// cVector.push_back(new PointConstraintY(pVector[0], pVector[0]->m_ConstructPos[1]));
+	// cVector.push_back(new PointConstraintX(pVector[cloth_columns - 1], pVector[cloth_columns - 1]->m_ConstructPos[0]));
+	// cVector.push_back(new PointConstraintY(pVector[cloth_columns - 1], pVector[cloth_columns - 1]->m_ConstructPos[1]));
+
+	// add wind force
+	windForce = new WindForce(pVector, windDirection, windStrength, enableWind);
+	fVector.push_back(windForce);
+
+	// // add circular wire constraint
+	// cVector.push_back(new CircularWireConstraint(pVector[12], center, dist));
+
+	// // add rod constraint
+	// cVector.push_back(new RodConstraint(pVector[0], pVector[24], dist));
 }
 
 /*
@@ -172,27 +244,33 @@ static void draw_particles ( void )
 	}
 }
 
+static void draw_walls ( void ) 
+{
+	glBegin( GL_LINES );
+	glColor3f(0.8, 0.8, 0.8);
+	glVertex2f( -0.9f, 0.9f );
+	glVertex2f( -0.9f, -0.9f );
+
+	glVertex2f( -0.9f, -0.9f );
+	glVertex2f( 0.9f, -0.9f );
+
+	glVertex2f( 0.9f, -0.9f );
+	glVertex2f( 0.9f, 0.9f );
+	glEnd();
+}
+
 static void draw_forces ( void )
 {
-	// OLD CODE:
-	// change this to iteration over full set
-	// if (delete_this_dummy_spring)
-	// 	delete_this_dummy_spring->draw();
-
-	// 5. Iterate and draw
-	for (Force* f : forces) {
-		f->draw();
-	}
+  for (size_t i = 0; i < fVector.size(); i++) {
+    fVector[i]->draw();
+  }
 }
 
 static void draw_constraints ( void )
 {
-	for (Constraint* c : constraints) c->draw();
-	// change this to iteration over full set
-	// if (delete_this_dummy_rod)
-	// 	delete_this_dummy_rod->draw();
-	// if (delete_this_dummy_wire)
-	// 	delete_this_dummy_wire->draw();
+	for (Constraint* c: cVector) {
+		c->draw();
+	}
 }
 
 /*
@@ -234,14 +312,14 @@ static void get_from_UI ()
 
 static void remap_GUI()
 {
-    int ii, size = pVector.size();
-    for(ii=0; ii<size; ii++)
-    {
-        pVector[ii]->m_Position[0] = pVector[ii]->m_ConstructPos[0];
-        pVector[ii]->m_Position[1] = pVector[ii]->m_ConstructPos[1];
-        pVector[ii]->m_Velocity = Vec2f(0.0f, 0.0f);   
-        pVector[ii]->m_Force    = Vec2f(0.0f, 0.0f);   
-    }
+	int ii, size = pVector.size();
+	for(ii=0; ii<size; ii++)
+	{
+		pVector[ii]->m_Position[0] = pVector[ii]->m_ConstructPos[0];
+		pVector[ii]->m_Position[1] = pVector[ii]->m_ConstructPos[1];
+		pVector[ii]->m_Velocity = Vec2f(0.0, 0.0);
+		pVector[ii]->m_Force = Vec2f(0.0, 0.0);
+	}
 }
 
 /*
@@ -254,6 +332,26 @@ static void key_func ( unsigned char key, int x, int y )
 {
 	switch ( key )
 	{
+	case '1':
+		solver_type = 0;
+		printf("Switched to Euler solver.\n");
+		break;
+	case '2':
+		solver_type = 1;
+		printf("Switched to Midpoint solver.\n");
+		break;
+	case '3':
+		solver_type = 2;
+		printf("Switched to RK4 solver.\n");
+		break;
+	case 'p':
+		dt += 0.001f;
+		printf("dt: %f\n", dt);
+		break;
+	case 'o':
+		dt -= 0.001f;
+		printf("dt: %f\n", dt);
+		break;
 	case 'c':
 	case 'C':
 		clear_data ();
@@ -270,27 +368,131 @@ static void key_func ( unsigned char key, int x, int y )
 		exit ( 0 );
 		break;
 
+	case 's':
+		use_sqrt_rodConstraint = !use_sqrt_rodConstraint;
+		for (Constraint* c: cVector) {
+			RodConstraint* rod = dynamic_cast<RodConstraint*>(c);
+			if (rod) {
+				rod->m_useSqrt = use_sqrt_rodConstraint;
+			}
+		}
+		printf("Rod constraint now uses %s.\n", use_sqrt_rodConstraint ? "square root" : "squared distance");
+		break;
+
 	case ' ':
 		dsim = !dsim;
+		// clear the sim data if switch from sim to constr mode
+		if (!dsim) clear_data();
+		break;
+
+	case 'i':
+		ks += 0.5;
+		printf("ks (spring stiffness): %f\n", ks);
+		break;
+
+	case 'u':
+		ks -= 0.5;
+		if (ks < 0) ks = 0;
+		printf("ks (spring stiffness): %f\n", ks);
+		break;
+
+	case 'k':
+		kd += 0.5;
+		printf("kd (damping): %f\n", kd);
+		break;
+
+	case 'j':
+		kd -= 0.5;
+		if (kd < 0) kd = 0;
+		printf("kd (damping): %f\n", kd);
+		break;
+
+	case 'w':
+		enableWind = !enableWind;
+		if (windForce) {
+			windForce->setEnabled(enableWind);
+		}
+		printf("Wind %s\n", enableWind ? "enabled" : "disabled");
+		break;
+
+	case 'h':
+		printf("\n=== Keyboard Controls ===\n");
+		printf("1/2/3     - Switch solver (Euler/Midpoint/RK4)\n");
+		printf("p/o       - Increase/decrease dt (timestep)\n");
+		printf("i/u       - Increase/decrease mouse spring stiffness\n");
+		printf("k/j       - Increase/decrease mouse damping\n");
+		printf("s         - Toggle sqrt formula for rod constraints\n");
+		printf("c         - Clear/reset simulation\n");
+		printf("d         - Toggle frame dumping\n");
+		printf("space     - Toggle simulation/construction mode\n");
+		printf("q         - Quit\n");
+		printf("Current values:\n");
+		printf("  dt: %f\n", dt);
+		printf("  mouse_ks: %f\n", mouse_ks);
+		printf("  mouse_kd: %f\n", mouse_kd);
+		printf("========================\n\n");
 		break;
 	}
 }
 
+// Convert screen coordinates to world coordinates in the range [-1, 1]
+Vec2f screenToWorld(int x, int y) {
+    float wx = (2.0f * x) / (float)win_x - 1.0f;
+    float wy = 1.0f - (2.0f * y) / (float)win_y;
+    return Vec2f(wx, wy);
+}
+
 static void mouse_func ( int button, int state, int x, int y )
 {
-	omx = mx = x;
-	omx = my = y;
+	Vec2f worldPos = screenToWorld(x, y);
+	
+	if (button == GLUT_LEFT_BUTTON && state == GLUT_DOWN) {
+        // find nearest particle
+        Particle* nearest = NULL;
+        float minDist = 0.5f; // selection threshold
+        for (auto* p : pVector) {
+            float d = sqrt(pow(p->m_Position[0]-worldPos[0], 2) + pow(p->m_Position[1]-worldPos[1], 2));
+            if (d < minDist) {
+                minDist = d;
+                nearest = p;
+            }
+        }
+        if (nearest) {
+            mouseSpring = new MouseSpringForce(nearest, mouse_ks, mouse_kd);
+            mouseSpring->updateMousePosition(worldPos[0], worldPos[1]);
+            fVector.push_back(mouseSpring);
+        }
+    } 
+    else if (button == GLUT_LEFT_BUTTON && state == GLUT_UP) {
+        // remove mouse spring
+        if (mouseSpring) {
+            for (auto it = fVector.begin(); it != fVector.end(); ++it) {
+                if (*it == mouseSpring) {
+                    fVector.erase(it);
+                    break;
+                }
+            }
+            delete mouseSpring;
+            mouseSpring = NULL;
+        }
+    }
+	// omx = mx = x;
+	// omx = my = y;
 
-	if(!mouse_down[0]){hmx=x; hmy=y;}
-	if(mouse_down[button]) mouse_release[button] = state == GLUT_UP;
-	if(mouse_down[button]) mouse_shiftclick[button] = glutGetModifiers()==GLUT_ACTIVE_SHIFT;
-	mouse_down[button] = state == GLUT_DOWN;
+	// if(!mouse_down[0]){hmx=x; hmy=y;}
+	// if(mouse_down[button]) mouse_release[button] = state == GLUT_UP;
+	// if(mouse_down[button]) mouse_shiftclick[button] = glutGetModifiers()==GLUT_ACTIVE_SHIFT;
+	// mouse_down[button] = state == GLUT_DOWN;
 }
 
 static void motion_func ( int x, int y )
 {
-	mx = x;
-	my = y;
+	if (mouseSpring) {
+		Vec2f worldPos = screenToWorld(x, y);
+		mouseSpring->updateMousePosition(worldPos[0], worldPos[1]);
+	}
+	// mx = x;
+	// my = y;
 }
 
 static void reshape_func ( int width, int height )
@@ -304,7 +506,7 @@ static void reshape_func ( int width, int height )
 
 static void idle_func ( void )
 {
-	if ( dsim ) simulation_step( pVector, forces, constraints, dt );
+	if ( dsim ) simulation_step( pVector, fVector, cVector, dt );
 	else        {get_from_UI();remap_GUI();}
 
 	glutSetWindow ( win_id );
@@ -318,10 +520,10 @@ static void display_func ( void )
 	draw_forces();
 	draw_constraints();
 	draw_particles();
+	draw_walls();
 
 	post_display ();
 }
-
 
 /*
 ----------------------------------------------------------------------
@@ -356,7 +558,6 @@ static void open_glut_window ( void )
 	glutDisplayFunc ( display_func );
 }
 
-
 /*
 ----------------------------------------------------------------------
 main --- main routine
@@ -369,7 +570,7 @@ int main ( int argc, char ** argv )
 
 	if ( argc == 1 ) {
 		N = 64;
-		dt = 0.005f;
+		dt = 0.05f;
 		d = 5.f;
 		fprintf ( stderr, "Using defaults : N=%d dt=%g d=%g\n",
 			N, dt, d );
@@ -398,4 +599,3 @@ int main ( int argc, char ** argv )
 
 	exit ( 0 );
 }
-

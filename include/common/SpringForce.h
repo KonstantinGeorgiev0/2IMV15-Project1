@@ -1,14 +1,13 @@
 #pragma once
 
 #include "Particle.h"
+#include "Force.h"
 
-#include "Force.h" // Including the base class
-
-class SpringForce : public Force { // Inheriting from Force
+class SpringForce : public Force {
  public:
   SpringForce(Particle *p1, Particle * p2, double dist, double ks, double kd);
 
-  void apply() override; // Adding apply method
+  void apply() override;
   void draw() override;
 
  private:

@@ -12,8 +12,6 @@
 class Force {
 public:
     virtual ~Force() {}
-    // This calculates and adds the force to the particles.
     virtual void apply() = 0;
-    // This draws the force (if applicable, like drawing a spring line).
     virtual void draw() = 0;
 };

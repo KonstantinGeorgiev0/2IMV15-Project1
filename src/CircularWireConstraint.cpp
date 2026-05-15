@@ -5,6 +5,9 @@
 
 static void draw_circle(const Vec2f &vect, float radius)
 {
+	// no draw for small radius
+	if (radius < 1e-6) return;
+
 	glBegin(GL_LINE_LOOP);
 	glColor3f(0.0, 1.0, 0.0);
 	for (int i = 0; i < 360; i = i + 18)
