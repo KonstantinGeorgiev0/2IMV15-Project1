@@ -1,5 +1,6 @@
 #include "WindForce.h"
 #include <GLUT/glut.h>
+#include <cmath>
 
 WindForce::WindForce(
     const std::vector<Particle*>& particles, const Vec2f& windDirection, float windStrength, bool enabled)
@@ -8,9 +9,12 @@ WindForce::WindForce(
 void WindForce::apply() {
     if (!m_enabled) return;
 
+    // Gust oscillation: slowly varying envelope makes cloth billow naturally
+    m_phase += 0.015f;
+    float effective = m_strength * (1.0f + 0.4f * sinf(m_phase));
+
     for (Particle* p : m_particles) {
-        // wind force
-        p->m_Force += m_strength * m_wind;
+        p->m_Force += effective * m_wind;
     }
 }
 

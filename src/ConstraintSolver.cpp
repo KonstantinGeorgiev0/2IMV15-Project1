@@ -92,9 +92,6 @@ void solve_constraints(std::vector<Particle*>& particles,
     std::vector<double> lambda(m, 0.0);
     int steps = 0;
     const double epsilon = 1e-6;
-    static double accumulated_time = 0.0;
-    const double print_interval = 1.0;
-    accumulated_time += 0.01;
     ConjGrad(m, &A, lambda.data(), b.data(), epsilon, &steps);
 
     // Constraint force = J^T lambda
@@ -108,24 +105,4 @@ void solve_constraints(std::vector<Particle*>& particles,
         }
     }
     
-    if (accumulated_time >= print_interval) {
-        accumulated_time = 0.0; // reset
-
-        std::cout << "\n--- Constraint Structure Monitor ---" << std::endl;
-        for (int i = 0; i < m; i++) {
-            Constraint* c = constraints[i];
-            
-            // positional error
-            double error = c->C();
-            
-            // vel along the constrained axis
-            double velocity = c->C_dot();
-            
-            // force magnitude applied to satisfy the constraint
-            double force_mag = lambda[i];
-
-            printf("Constraint [%d]: Error: %10.6f | Vel: %10.6f | Force: %10.6f\n", 
-                   i, error, velocity, force_mag);
-        }
-    }
 }

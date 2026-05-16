@@ -9,6 +9,7 @@ void CollisionHandler::handleWallCollisions(std::vector<Particle*>& particles, f
     // accumulated_time += 0.01;
     
     for (Particle* p : particles) {
+        if (p->m_Pinned) continue;  // pinned anchors must not move by collisions
         Vec2f X = p->m_Position;
 
         // dist from particle to plane
@@ -54,6 +55,7 @@ void CollisionHandler::handleParticleCollisions(std::vector<Particle*>& particle
         for (size_t j = i + 1; j < particles.size(); ++j) {
             Particle* p1 = particles[i];
             Particle* p2 = particles[j];
+            if (p1->m_Pinned || p2->m_Pinned) continue;  // never disturb pinned anchors
 
             Vec2f delta = p2->m_Position - p1->m_Position;
             float dist_sq = delta[0] * delta[0] + delta[1] * delta[1];
