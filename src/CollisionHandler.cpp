@@ -38,6 +38,7 @@ void CollisionHandler::handleParticleCollisions(std::vector<Particle*>& particle
         for (size_t j = i + 1; j < particles.size(); ++j) {
             Particle* p1 = particles[i];
             Particle* p2 = particles[j];
+            if (p1->m_Pinned || p2->m_Pinned) continue;  // never disturb pinned anchors
 
             Vec2f delta = p2->m_Position - p1->m_Position;
             float dist_sq = delta[0] * delta[0] + delta[1] * delta[1];

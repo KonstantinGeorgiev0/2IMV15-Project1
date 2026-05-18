@@ -15,4 +15,5 @@ private:
     Vec2f m_wind;
     float m_strength;
     bool m_enabled = true;
+    float m_phase = 0.0f;  // for oscillating gust effect
 };
