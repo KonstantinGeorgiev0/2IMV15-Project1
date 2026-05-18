@@ -8,6 +8,7 @@
 #include "ConstraintSolver.h"
 #include "linearSolver.h"
 
+
 #include <vector>
 #include <cmath>
 
@@ -184,162 +185,128 @@ void rk4_step(std::vector<Particle*> pVector,
 	ParticleSetState(pVector, state);
 }
 
-// Implicit Euler  (Baraff-Witkin linearisation)
-// Only spring forces contribute non-zero Jacobians; gravity/wind have J≈0.
-// Pinned particles are enforced via a large diagonal (Δv → 0).
-
-struct ImplicitSpringBlock {
-    int pi, pj;      // particle indices
-    double C[2][2];  // combined block
-};
-
-class ImplicitEulerMatrix : public implicitMatrix {
+class SystemMatrix : public implicitMatrix {
 public:
-    std::vector<Particle*>*         particles;
-    std::vector<ImplicitSpringBlock> blocks;
+    std::vector<Particle*>& pVector;
+    std::vector<Force*>& fVector;
+    float dt;
+
+    SystemMatrix(std::vector<Particle*>& p, std::vector<Force*>& f, float delta_t) 
+        : pVector(p), fVector(f), dt(delta_t) {}
 
     void matVecMult(double x[], double r[]) override {
-        const int n = (int)particles->size();
-        for (int k = 0; k < 2 * n; k++) r[k] = 0.0;
+        int N = pVector.size();
+        std::vector<double> dx(N * 2);
+        std::vector<double> df(N * 2, 0.0);
 
-        // Mass rows
-        for (int i = 0; i < n; i++) {
-            double m = (*particles)[i]->m_Mass;
-            r[2*i]   += m * x[2*i];
-            r[2*i+1] += m * x[2*i+1];
+        for (int i = 0; i < N * 2; ++i) {
+            dx[i] = x[i] * dt;
         }
 
-        // Spring stiffness + damping rows
-        for (const auto& b : blocks) {
-            double dv[2] = { x[2*b.pi]   - x[2*b.pj],
-                             x[2*b.pi+1] - x[2*b.pj+1] };
-            for (int a = 0; a < 2; a++) {
-                double cv = b.C[a][0]*dv[0] + b.C[a][1]*dv[1];
-                r[2*b.pi+a] += cv;
-                r[2*b.pj+a] -= cv;
-            }
+        for (Force* f : fVector) {
+            f->addJacobianMultiplication(dx.data(), x, df.data(), N);
         }
 
-        // Pinned override
-        for (int i = 0; i < n; i++) {
-            if ((*particles)[i]->m_Pinned) {
-                r[2*i]   = 1e10 * x[2*i];
-                r[2*i+1] = 1e10 * x[2*i+1];
+        for (int i = 0; i < N; ++i) {
+            if (pVector[i]->m_Pinned) {
+                r[i*2] = x[i*2];
+                r[i*2+1] = x[i*2+1];
+            } else {
+                float mass = pVector[i]->m_Mass; 
+                r[i*2]   = mass * x[i*2]   - dt * df[i*2];
+                r[i*2+1] = mass * x[i*2+1] - dt * df[i*2+1];
             }
         }
     }
 };
 
-// Build particle index lookup (O(1) per query after build)
-static int particle_idx(Particle* p, const std::vector<Particle*>& pv) {
-    for (int i = 0; i < (int)pv.size(); i++)
-        if (pv[i] == p) return i;
-    return -1;
-}
-
-void implicit_euler_step(std::vector<Particle*> pVector,
-    std::vector<Force*> fVector,
-    std::vector<Constraint*> cVector,
-    float h)
-{
-    const int N = (int)pVector.size();
-
-    //Accumulate forces(including constraint corrections)
-    for (int i = 0; i < N; i++)
-        pVector[i]->m_Force = Vec2f(0.0f, 0.0f);
-    for (auto* f : fVector)
-        f->apply();
-    solve_constraints(pVector, cVector);
-
-    //Build RHS and spring block list 
-    std::vector<double> b(2 * N, 0.0);
-
+void implicit_euler(std::vector<Particle*>& pVector, std::vector<Force*>& fVector, std::vector<Constraint*>& cVector, float dt) {
+    int N = pVector.size();
+    int N2 = N * 2;
     
-    for (int i = 0; i < N; i++) {
-        b[2*i]   = h * pVector[i]->m_Force[0];
-        b[2*i+1] = h * pVector[i]->m_Force[1];
+    std::vector<double> x(N2, 0.0); 
+    std::vector<double> b(N2, 0.0); 
+
+    for (Particle* p : pVector) p->clearForce();
+    for (Force* f : fVector) f->apply();
+	solve_constraints(pVector, cVector);
+
+    std::vector<double> v0(N2);
+    std::vector<double> zero_dv(N2, 0.0);
+    std::vector<double> df_dx_v0(N2, 0.0);
+
+    for (int i = 0; i < N; ++i) {
+        v0[i*2] = pVector[i]->m_Velocity[0];
+        v0[i*2+1] = pVector[i]->m_Velocity[1];
     }
 
-    ImplicitEulerMatrix A;
-    A.particles = &pVector;
-
-    for (auto* force : fVector) {
-        SpringForce* sf = dynamic_cast<SpringForce*>(force);
-        if (!sf) continue;
-
-        Particle* pa = sf->getP1();
-        Particle* pb = sf->getP2();
-        int pi = particle_idx(pa, pVector);
-        int pj = particle_idx(pb, pVector);
-        if (pi < 0 || pj < 0) continue;
-
-        float ks = (float)sf->getKs();
-        float kd = (float)sf->getKd();
-        float r  = (float)sf->getDist();
-
-        Vec2f l   = pa->m_Position - pb->m_Position;
-        float len = sqrtf(l[0]*l[0] + l[1]*l[1]);
-        if (len < 1e-8f) continue;
-
-        Vec2f lhat = l / len;
-
-        double lhat_outer[2][2] = {
-            { lhat[0]*lhat[0], lhat[0]*lhat[1] },
-            { lhat[1]*lhat[0], lhat[1]*lhat[1] }
-        };
-
-        double perp = std::max(0.0, (double)(len - r) / len);
-        ImplicitSpringBlock blk;
-        blk.pi = pi;
-        blk.pj = pj;
-        for (int a = 0; a < 2; a++) {
-            for (int bb = 0; bb < 2; bb++) {
-                double I_ab = (a == bb) ? 1.0 : 0.0;
-                double J_stiff = ks * (lhat_outer[a][bb] + perp * (I_ab - lhat_outer[a][bb]));
-                double J_damp  = kd * lhat_outer[a][bb];
-                blk.C[a][bb] = h*h * J_stiff + h * J_damp;
-            }
-        }
-        A.blocks.push_back(blk);
-
-        Vec2f v_rel = pa->m_Velocity - pb->m_Velocity;
-        for (int a = 0; a < 2; a++) {
-            double kv = 0.0;
-            for (int bb = 0; bb < 2; bb++) {
-                double I_ab = (a == bb) ? 1.0 : 0.0;
-                double J_stiff = ks * (lhat_outer[a][bb] + perp * (I_ab - lhat_outer[a][bb]));
-                kv -= J_stiff * v_rel[bb];
-            }
-            b[2*pi+a] += h*h * kv;
-            b[2*pj+a] -= h*h * kv;
-        }
+    for (Force* f : fVector) {
+        f->addJacobianMultiplication(v0.data(), zero_dv.data(), df_dx_v0.data(), N);
     }
 
-    // Zero out pinned particles' RHS
-    for (int i = 0; i < N; i++) {
+    for (int i = 0; i < N; ++i) {
         if (pVector[i]->m_Pinned) {
-            b[2*i] = 0.0;
-            b[2*i+1] = 0.0;
+            b[i*2] = 0.0;
+            b[i*2+1] = 0.0;
+        } else {
+            b[i*2]   = dt * (pVector[i]->m_Force[0] + dt * df_dx_v0[i*2]);
+            b[i*2+1] = dt * (pVector[i]->m_Force[1] + dt * df_dx_v0[i*2+1]);
         }
     }
 
-    std::vector<double> dv(2 * N, 0.0);
-    int steps = 2 * N;  
-    ConjGrad(2 * N, &A, dv.data(), b.data(), 1e-6, &steps);
+    SystemMatrix A(pVector, fVector, dt);
+    int steps = 0;
+    ConjGrad(N2, &A, x.data(), b.data(), 1e-4, &steps);
 
-    for (int i = 0; i < N; i++) {
-        if (pVector[i]->m_Pinned) continue;
-        pVector[i]->m_Velocity[0] += (float)dv[2*i];
-        pVector[i]->m_Velocity[1] += (float)dv[2*i+1];
-        pVector[i]->m_Position[0] += h * pVector[i]->m_Velocity[0];
-        pVector[i]->m_Position[1] += h * pVector[i]->m_Velocity[1];
+    for (int i = 0; i < N; ++i) {
+        if (!pVector[i]->m_Pinned) {
+            pVector[i]->m_Velocity[0] += x[i*2];
+            pVector[i]->m_Velocity[1] += x[i*2+1];
+            pVector[i]->m_Position[0] += dt * pVector[i]->m_Velocity[0];
+            pVector[i]->m_Position[1] += dt * pVector[i]->m_Velocity[1];
+        }
     }
 
+	for (Particle* p : pVector) p->clearForce();
+	for (Force* f : fVector) f->apply();
+	solve_constraints(pVector, cVector);
 }
 
-extern void simulation_step( std::vector<Particle*> pVector,
-	std::vector<Force*> fVector,
-	std::vector<Constraint*> cVector,
+void verlet_step(std::vector<Particle*>& pVector, std::vector<Force*>& fVector, std::vector<Constraint*>& cVector, float dt) {
+    int N = pVector.size();
+    std::vector<Vec2f> old_forces(N, Vec2f(0.0f, 0.0f));
+
+    for (Particle* p : pVector) p->clearForce();
+    for (Force* f : fVector) f->apply();
+	solve_constraints(pVector, cVector);
+
+    for (int i = 0; i < N; ++i) {
+        Particle* p = pVector[i];
+        old_forces[i] = p->m_Force;
+
+        if (!p->m_Pinned) {
+            p->m_Position[0] += p->m_Velocity[0] * dt + 0.5f * (p->m_Force[0] / p->m_Mass) * (dt * dt);
+            p->m_Position[1] += p->m_Velocity[1] * dt + 0.5f * (p->m_Force[1] / p->m_Mass) * (dt * dt);
+        }
+    }
+
+    for (Particle* p : pVector) p->clearForce();
+    for (Force* f : fVector) f->apply();
+	solve_constraints(pVector, cVector);
+
+    for (int i = 0; i < N; ++i) {
+        Particle* p = pVector[i];
+        if (!p->m_Pinned) {
+            p->m_Velocity[0] += 0.5f * ((old_forces[i][0] + p->m_Force[0]) / p->m_Mass) * dt;
+            p->m_Velocity[1] += 0.5f * ((old_forces[i][1] + p->m_Force[1]) / p->m_Mass) * dt;
+        }
+    }
+	solve_constraints(pVector, cVector);
+}
+
+extern void simulation_step( std::vector<Particle*> pVector, 
+	std::vector<Force*> fVector, 
+	std::vector<Constraint*> cVector, 
 	float dt )
 {
 	switch(solver_type)
@@ -347,6 +314,7 @@ extern void simulation_step( std::vector<Particle*> pVector,
 		case 0: euler_step(pVector, fVector, cVector, dt); break;
 		case 1: midpoint_step(pVector, fVector, cVector, dt); break;
 		case 2: rk4_step(pVector, fVector, cVector, dt); break;
-		case 3: implicit_euler_step(pVector, fVector, cVector, dt); break;
+		case 3: implicit_euler(pVector, fVector, cVector, dt); break;
+		case 4: verlet_step(pVector, fVector, cVector, dt); break;
 	}
 }

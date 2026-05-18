@@ -8,7 +8,9 @@ Particle::Particle(const Vec2f &ConstructPos) :
 	m_Force(Vec2f(0.0, 0.0)), 
 	m_Mass(1.0f),
 	m_Pinned(false)
-{  
+{
+	m_Index = -1;
+	m_Pinned = false;
 }
 
 Particle::~Particle(void)

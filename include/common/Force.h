@@ -12,6 +12,7 @@
 class Force {
 public:
     virtual ~Force() {}
+    virtual void addJacobianMultiplication(double* dx, double* dv, double* df, int N) {}
     virtual void apply() = 0;
     virtual void draw() = 0;
 };

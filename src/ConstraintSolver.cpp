@@ -104,5 +104,4 @@ void solve_constraints(std::vector<Particle*>& particles,
             cp[k]->m_Force += float(lambda[i]) * rows[k];
         }
     }
-    
 }
