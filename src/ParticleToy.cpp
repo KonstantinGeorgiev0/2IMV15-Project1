@@ -265,6 +265,27 @@ static void hair_scene() {
     fVector.push_back(new GravityForce(pVector, Vec2f(0.0, -1.0) * 0.1f));
 }
 
+static void pendulum_scene()
+{
+	const double dist = 0.2;
+	const Vec2f center(0.0, 0.3);
+	const Vec2f offset(dist, 0.0);
+
+	// 3 particles in a line
+	pVector.push_back(new Particle(center + offset));
+	pVector.push_back(new Particle(center + offset + offset));
+	pVector.push_back(new Particle(center + offset + offset + offset));
+
+	// gravity and spring
+	fVector.push_back(new GravityForce(pVector, gravityDirection * gravityStrength));
+	fVector.push_back(new SpringForce(pVector[0], pVector[1], dist, spring_ks, spring_kd));
+
+	// circular wire constraint to first particle
+	cVector.push_back(new CircularWireConstraint(pVector[0], center, dist));
+	// rod between 1st and 2nd; 2nd and 3rd
+	cVector.push_back(new RodConstraint(pVector[1], pVector[2], dist, use_sqrt_rodConstraint));
+}
+
 static void init_system(void)
 {
 	free_data();
@@ -272,6 +293,7 @@ static void init_system(void)
 	{
 		case 0: cloth_scene(); break;
 		case 1: hair_scene(); break;
+		case 2: pendulum_scene(); break;
 	}
 }
 
@@ -445,9 +467,9 @@ static void key_func ( unsigned char key, int x, int y )
 		break;
 
 	case 's':
-		scene_type = (scene_type + 1) % 2; // toggle between scenes
+		scene_type = (scene_type + 1) % 3; // toggle between scenes
 		init_system();
-		printf("Switched to %s scene.\n", scene_type == 0 ? "cloth" : "hair");
+		printf("Switched to %s scene.\n", scene_type == 0 ? "cloth" : (scene_type == 1 ? "hair" : "pendulum"));
 		break;
 
 	case 'r':
@@ -676,6 +698,33 @@ static void idle_func ( void )
 		simulation_step( pVector, fVector, cVector, dt );
 		CollisionHandler::handleWallCollisions(pVector, wallVector, wall_restitution, wall_friction_coeff);
 		CollisionHandler::handleParticleCollisions(pVector, particle_diameter, wall_restitution);
+
+		if (scene_type == 1) {
+			const float hair_drag = 5.0f;
+			for (auto* p : pVector) {
+				if (!p->m_Pinned)
+					p->m_Velocity *= (1.0f - hair_drag * dt);
+			}
+		}
+
+		bool explosion_detected = false;
+		for (auto* p : pVector) {
+			if (!std::isfinite(p->m_Position[0]) || !std::isfinite(p->m_Position[1]) ||
+			    !std::isfinite(p->m_Velocity[0]) || !std::isfinite(p->m_Velocity[1])) {
+				explosion_detected = true;
+				break;
+			}
+			float dx = p->m_Position[0] - p->m_ConstructPos[0];
+			float dy = p->m_Position[1] - p->m_ConstructPos[1];
+			if (dx*dx + dy*dy > 25.0f) { 
+				explosion_detected = true;
+				break;
+			}
+		}
+		if (explosion_detected) {
+			printf("Explosion detected — resetting scene.\n");
+			clear_data();
+		}
 	} else {
 		get_from_UI();
 		remap_GUI();
