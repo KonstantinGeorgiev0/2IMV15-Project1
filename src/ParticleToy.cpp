@@ -13,6 +13,7 @@
 #include "PointConstraint.h"
 #include "WindForce.h"
 #include "CollisionHandler.h"
+#include "AngularSpringForce.h"
 
 #include <GLUT/glut.h>
 #include <stdio.h>
@@ -37,25 +38,33 @@ static int frame_number;
 int solver_type = 0;
 float dt = 0.01f;
 bool use_sqrt_rodConstraint = true;
-static double mouse_ks = 0.50;  // spring stiffness for mouse interaction
-static double mouse_kd = 0.10;  // damping
+static double mouse_ks = 10.50;  // spring stiffness for mouse interaction
+static double mouse_kd = 3.10;  // damping
 static WindForce* windForce = NULL; // global pointer to the wind force
 static Vec2f windDirection(-1.0, 0.0); // blow left
 static float windStrength = 0.15f;
 static bool enableWind = false; // toggle wind force
+static int scene_type = 0; // 0 for cloth, 1 for hair
 
 // cloth variables
-const int cloth_rows = 10; // rows
-const int cloth_columns = 10; // columns
-const float cloth_spacing = 0.05f; // spacing between particles in the cloth
+int cloth_rows = 5; // rows
+int cloth_columns = 5; // columns
+float cloth_spacing = 0.045f; // spacing between particles in the cloth
+bool fixRowBool = true; // whether to fix in space the top row of the cloth
+bool fixCornersBool = false; // whether to fix in space the corners of the cloth
 double spring_ks = 10.0f; // spring stiffness for cloth springs
 double spring_kd = 3.5f; // damping for cloth springs
 float wall_restitution = 0.5f; // restitution coefficient for wall collisions
 float wall_friction_coeff = 0.1f; // friction coefficient for wall collisions
 float particle_diameter = 0.045f; // diameter of each particle
 
+// hair variables
+int hair_segments = 5; // number of segments in the hair
+float hair_segment_length = 0.05f; // length of each hair segment
+
 // static Particle *pList;
 static std::vector<Particle *> pVector;
+static std::vector<Wall> wallVector;
 
 static int win_id;
 static int win_x, win_y;
@@ -104,17 +113,19 @@ static void clear_data ( void )
 	}
 }
 
-static void init_system(void)
-{
-  	// clean up from previous runs
+/* Scenes */
+static void cloth_scene() {
+	// clean up from previous runs
   	free_data();
 
-	// particles to be affected by gravity
-	// std::vector<Particle*> gravityParticles;
+	// initialize walls
+	wallVector.clear();
+	wallVector.emplace_back(Vec2f(-1.0f, -0.92f), Vec2f(1.0f, -0.92f));
+	wallVector.emplace_back(Vec2f(-0.92f, -1.0f), Vec2f(-0.92f, 1.0f));
+
+	// gravity parameters
 	const Vec2f gravityDirection(0.0, -1.0);
 	const float gravityStrength = 0.1f;
-	// const Vec2f center(0.0, 0.0);
-	// const float dist = 0.5f;
 
 	// create cloth particles in row major order
 	for (int i = 0; i < cloth_rows; ++i) {
@@ -123,6 +134,16 @@ static void init_system(void)
 			float y = 0.9f - i * cloth_spacing; // start from almost top and go down
 			pVector.push_back(new Particle(Vec2f(x, y)));
 		}
+	}
+
+	// orient wall normals consistently toward the cloth
+	Vec2f clothCenter(0.0f, 0.0f);
+	for (Particle* p : pVector) {
+		clothCenter += p->m_Position;
+	}
+	clothCenter /= float(pVector.size());
+	for (Wall& wall : wallVector) {
+		wall.orientNormalToPoint(clothCenter);
 	}
 
 	// cloth spring connectivity
@@ -170,30 +191,88 @@ static void init_system(void)
 	// add gravity to all particles
 	fVector.push_back(new GravityForce(pVector, gravityDirection * gravityStrength));
 
-	// // fix top row particles
-	// for (int j = 0; j < cloth_columns; ++j) {
-	// 	Particle* p = pVector[j];
-	// 	// x dir fix
-	// 	cVector.push_back(new PointConstraintX(p, p->m_ConstructPos[0]));
-	// 	// y dir fix
-	// 	cVector.push_back(new PointConstraintY(p, p->m_ConstructPos[1]));
-	// }
-
-	// fix top row corners
-	cVector.push_back(new PointConstraintX(pVector[0], pVector[0]->m_ConstructPos[0]));
-	cVector.push_back(new PointConstraintY(pVector[0], pVector[0]->m_ConstructPos[1]));
-	cVector.push_back(new PointConstraintX(pVector[cloth_columns - 1], pVector[cloth_columns - 1]->m_ConstructPos[0]));
-	cVector.push_back(new PointConstraintY(pVector[cloth_columns - 1], pVector[cloth_columns - 1]->m_ConstructPos[1]));
+	if (fixRowBool) {
+		// fix top row particles
+		for (int j = 0; j < cloth_columns; ++j) {
+			Particle* p = pVector[j];
+			// x dir fix
+			cVector.push_back(new PointConstraintX(p, p->m_ConstructPos[0]));
+			// y dir fix
+			cVector.push_back(new PointConstraintY(p, p->m_ConstructPos[1]));
+			p->m_Pinned = true;
+		}
+	} else if (fixCornersBool) {
+		// fix top row corners
+		cVector.push_back(new PointConstraintX(pVector[0], pVector[0]->m_ConstructPos[0]));
+		cVector.push_back(new PointConstraintY(pVector[0], pVector[0]->m_ConstructPos[1]));
+		cVector.push_back(new PointConstraintX(pVector[cloth_columns - 1], pVector[cloth_columns - 1]->m_ConstructPos[0]));
+		cVector.push_back(new PointConstraintY(pVector[cloth_columns - 1], pVector[cloth_columns - 1]->m_ConstructPos[1]));
+		pVector[0]->m_Pinned = true;
+		pVector[cloth_columns - 1]->m_Pinned = true;
+	}
 
 	// add wind force
 	windForce = new WindForce(pVector, windDirection, windStrength, enableWind);
 	fVector.push_back(windForce);
+}
 
-	// // add circular wire constraint
-	// cVector.push_back(new CircularWireConstraint(pVector[12], center, dist));
+static void hair_scene() {
+	free_data();
+    float rest_len = hair_segment_length;
+    float perturb_offset = rest_len * 0.5f;
 
-	// // add rod constraint
-	// cVector.push_back(new RodConstraint(pVector[0], pVector[24], dist));
+    // generate main axis particles and perturbed midpoint particles
+    std::vector<Particle*> main_nodes;
+    std::vector<Particle*> offset_nodes;
+
+    for (int i = 0; i < hair_segments; ++i) {
+        float y = 0.9f - i * rest_len;
+        Particle* p = new Particle(Vec2f(0.0f, y));
+        pVector.push_back(p);
+        main_nodes.push_back(p);
+
+        if (i < hair_segments - 1) {
+            // create perturbed particle at the midpoint, offset along X
+            Particle* p_off = new Particle(Vec2f(perturb_offset, y - rest_len * 0.5f));
+            pVector.push_back(p_off);
+            offset_nodes.push_back(p_off);
+        }
+    }
+
+    // connect structural and triangle-forming springs
+    for (int i = 0; i < hair_segments - 1; ++i) {
+        // structural edge
+        fVector.push_back(new SpringForce(main_nodes[i], main_nodes[i+1], rest_len, spring_ks, spring_kd));
+        
+        // triangle edges (main node to offset node)
+        float diag_len = sqrt(pow(perturb_offset, 2) + pow(rest_len * 0.5f, 2));
+        fVector.push_back(new SpringForce(main_nodes[i], offset_nodes[i], diag_len, spring_ks, spring_kd));
+        fVector.push_back(new SpringForce(main_nodes[i+1], offset_nodes[i], diag_len, spring_ks, spring_kd));
+    }
+
+    // angular torsion springs across the triangles
+    for (int i = 0; i < hair_segments - 2; ++i) {
+        double angular_ks = spring_ks * 0.005; 
+        double angular_kd = spring_kd * 0.005;
+        // enforce 180 degrees between consecutive main segments using the triangles
+        fVector.push_back(new AngularSpringForce(main_nodes[i], main_nodes[i+1], main_nodes[i+2], M_PI, angular_ks, angular_kd));
+    }
+
+    // fix root
+    cVector.push_back(new PointConstraintX(main_nodes[0], main_nodes[0]->m_ConstructPos[0]));
+    cVector.push_back(new PointConstraintY(main_nodes[0], main_nodes[0]->m_ConstructPos[1]));
+
+    fVector.push_back(new GravityForce(pVector, Vec2f(0.0, -1.0) * 0.1f));
+}
+
+static void init_system(void)
+{
+	free_data();
+	switch (scene_type)
+	{
+		case 0: cloth_scene(); break;
+		case 1: hair_scene(); break;
+	}
 }
 
 /*
@@ -333,6 +412,14 @@ static void key_func ( unsigned char key, int x, int y )
 		solver_type = 2;
 		printf("Switched to RK4 solver.\n");
 		break;
+	case '4':
+		solver_type = 3;
+		printf("Switched to Implicit Euler solver.\n");
+		break;
+	case '5':
+		solver_type = 4;
+		printf("Switched to Verlet solver.\n");
+		break;
 	case 'p':
 		dt += 0.001f;
 		printf("dt: %f\n", dt);
@@ -358,6 +445,12 @@ static void key_func ( unsigned char key, int x, int y )
 		break;
 
 	case 's':
+		scene_type = (scene_type + 1) % 2; // toggle between scenes
+		init_system();
+		printf("Switched to %s scene.\n", scene_type == 0 ? "cloth" : "hair");
+		break;
+
+	case 'r':
 		use_sqrt_rodConstraint = !use_sqrt_rodConstraint;
 		for (Constraint* c: cVector) {
 			RodConstraint* rod = dynamic_cast<RodConstraint*>(c);
@@ -404,21 +497,105 @@ static void key_func ( unsigned char key, int x, int y )
 		printf("Wind %s\n", enableWind ? "enabled" : "disabled");
 		break;
 
+	case 'f':
+		fixRowBool = !fixRowBool;
+		printf("Row fixing %s\n", fixRowBool ? "enabled" : "disabled");
+		init_system(); // rebuild scene to apply changes
+		break;
+
+	case 'v':
+	{
+		int choice;
+		printf("\n=== Modify Simulation Parameters ===\n");
+		printf("1. Cloth Rows (current: %d)\n", cloth_rows);
+		printf("2. Cloth Columns (current: %d)\n", cloth_columns);
+		printf("3. Cloth Spacing (current: %f)\n", cloth_spacing);
+		printf("4. Spring Stiffness [ks] (current: %f)\n", spring_ks);
+		printf("5. Spring Damping [kd] (current: %f)\n", spring_kd);
+		printf("6. Time Step [dt] (current: %f)\n", dt);
+		printf("7. Hair Segments (current: %d)\n", hair_segments);
+		printf("8. Hair Segment Length (current: %f)\n", hair_segment_length);
+		printf("Select an option (1-8): ");
+		
+		std::cin >> choice;
+
+		if (choice == 1) {
+			printf("Enter new number of cloth rows: ");
+			std::cin >> cloth_rows;
+			if (cloth_rows < 2) cloth_rows = 2; // prevent zero/negative size crashes
+			init_system(); // rebuilds scene 
+			printf("Scene rebuilt with %d rows.\n", cloth_rows);
+		} 
+		else if (choice == 2) {
+			printf("Enter new number of cloth columns: ");
+			std::cin >> cloth_columns;
+			if (cloth_columns < 2) cloth_columns = 2;
+			init_system(); // rebuilds scene
+			printf("Scene rebuilt with %d columns.\n", cloth_columns);
+		} 
+		else if (choice == 3) {
+			printf("Enter new cloth spacing: ");
+			std::cin >> cloth_spacing;
+			if (cloth_spacing <= 0) cloth_spacing = 0.01f; // prevent non-positive spacing
+			init_system(); // rebuilds scene
+			printf("Scene rebuilt with cloth spacing = %f.\n", cloth_spacing);
+		}
+		else if (choice == 4) {
+			printf("Enter new spring stiffness (ks): ");
+			std::cin >> spring_ks;
+			init_system(); // rebuilds scene
+			printf("Scene rebuilt with ks = %f.\n", spring_ks);
+		} 
+		else if (choice == 5) {
+			printf("Enter new spring damping (kd): ");
+			std::cin >> spring_kd;
+			init_system(); // rebuilds scene
+			printf("Scene rebuilt with kd = %f.\n", spring_kd);
+		} 
+		else if (choice == 6) {
+			printf("Enter new time step (dt): ");
+			std::cin >> dt;
+			printf("Time step updated to dt = %f.\n", dt);
+		}
+		else if (choice == 7) {
+			printf("Enter new hair segments amount.\n");
+			std::cin >> hair_segments;
+			if (hair_segments < 2) hair_segments = 2;
+			init_system();
+			printf("Scene rebuilt with hair segments = %d.\n", hair_segments);
+		}
+		else if (choice == 8) {
+			printf("Enter new hair segment length.\n");
+			std::cin >> hair_segment_length;
+			if (hair_segment_length <= 0) hair_segment_length = 0.01f;
+			init_system();
+			printf("Scene rebuilt with hair segment length = %f.\n", hair_segment_length);
+		}
+		else {
+			printf("Invalid selection.\n");
+		}
+		break;
+	}
+
 	case 'h':
 		printf("\n=== Keyboard Controls ===\n");
-		printf("1/2/3     - Switch solver (Euler/Midpoint/RK4)\n");
+		printf("v         - Open parameter modification menu in console\n");
+		printf("1/2/3/4/5 - Switch solver (Euler/Midpoint/RK4/ImplicitEuler/Verlet)\n");
 		printf("p/o       - Increase/decrease dt (timestep)\n");
-		printf("i/u       - Increase/decrease mouse spring stiffness\n");
-		printf("k/j       - Increase/decrease mouse damping\n");
-		printf("s         - Toggle sqrt formula for rod constraints\n");
+		printf("i/u       - Increase/decrease spring stiffness\n");
+		printf("k/j       - Increase/decrease spring damping\n");
+		printf("w         - Toggle wind force\n");
+		printf("s         - Switch between cloth and hair scenes\n");
+		printf("r         - Toggle sqrt formula for rod constraints\n");
 		printf("c         - Clear/reset simulation\n");
 		printf("d         - Toggle frame dumping\n");
 		printf("space     - Toggle simulation/construction mode\n");
 		printf("q         - Quit\n");
+		
 		printf("Current values:\n");
 		printf("  dt: %f\n", dt);
-		printf("  mouse_ks: %f\n", mouse_ks);
-		printf("  mouse_kd: %f\n", mouse_kd);
+		printf("  spring_ks: %f\n", spring_ks);
+		printf("  spring_kd: %f\n", spring_kd);
 		printf("========================\n\n");
 		break;
 	}
@@ -497,7 +674,7 @@ static void idle_func ( void )
 {
 	if ( dsim ) {
 		simulation_step( pVector, fVector, cVector, dt );
-		CollisionHandler::handleWallCollisions(pVector, wall_restitution, wall_friction_coeff);
+		CollisionHandler::handleWallCollisions(pVector, wallVector, wall_restitution, wall_friction_coeff);
 		CollisionHandler::handleParticleCollisions(pVector, particle_diameter, wall_restitution);
 	} else {
 		get_from_UI();
@@ -515,7 +692,7 @@ static void display_func ( void )
 	draw_forces();
 	draw_constraints();
 	draw_particles();
-	CollisionHandler::drawWalls();
+	CollisionHandler::drawWalls(wallVector);
 
 	post_display ();
 }
@@ -581,11 +758,14 @@ int main ( int argc, char ** argv )
 	printf ( "\t Quit by pressing the 'q' key\n" );
 
 	printf("\n=== Keyboard Controls ===\n");
+	printf("v         - Open parameter modification menu in console\n");
 	printf("1/2/3     - Switch solver (Euler/Midpoint/RK4)\n");
 	printf("p/o       - Increase/decrease dt (timestep)\n");
 	printf("i/u       - Increase/decrease mouse spring stiffness\n");
 	printf("k/j       - Increase/decrease mouse damping\n");
 	printf("s         - Toggle sqrt formula for rod constraints\n");
+	printf("w         - Toggle wind force\n");
+	printf("f         - Toggle fixing top row of cloth\n");
 	printf("c         - Clear/reset simulation\n");
 	printf("d         - Toggle frame dumping\n");
 	printf("space     - Toggle simulation/construction mode\n");
