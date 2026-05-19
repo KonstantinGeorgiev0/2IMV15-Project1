@@ -43,7 +43,6 @@ enum SceneType
 	SCENE_CLOTH = 1,
 	SCENE_HAIR = 2
 };
-static int scene_type = SCENE_CLOTH; // default to cloth
 float dt = 0.01f;
 bool use_sqrt_rodConstraint = true;
 static double mouse_ks = 0.50;		   // spring stiffness for mouse interaction
@@ -53,6 +52,8 @@ static Vec2f windDirection(-1.0, 0.0); // blow left
 static float windStrength = 0.15f;
 static bool enableWind = false; // toggle wind force
 static int scene_type = 0; // 0 for cloth, 1 for hair
+const Vec2f gravityDirection(0.0, -1.0); // gravity points down
+const float gravityStrength = 0.1f;
 
 // cloth variables
 int cloth_rows = 5; // rows
@@ -135,10 +136,6 @@ static void cloth_scene() {
 	wallVector.clear();
 	wallVector.emplace_back(Vec2f(-1.0f, -0.92f), Vec2f(1.0f, -0.92f));
 	wallVector.emplace_back(Vec2f(-0.92f, -1.0f), Vec2f(-0.92f, 1.0f));
-
-	// gravity parameters
-	const Vec2f gravityDirection(0.0, -1.0);
-	const float gravityStrength = 0.1f;
 
 	// create cloth particles in row major order
 	for (int i = 0; i < cloth_rows; ++i)
@@ -279,7 +276,7 @@ static void hair_scene() {
         double angular_ks = spring_ks * 0.005; 
         double angular_kd = spring_kd * 0.005;
         // enforce 180 degrees between consecutive main segments using the triangles
-        fVector.push_back(new AngularSpringForce(main_nodes[i], main_nodes[i+1], main_nodes[i+2], M_PI, angular_ks, angular_kd));
+        fVector.push_back(new AngularSpring(main_nodes[i], main_nodes[i+1], main_nodes[i+2], M_PI, angular_ks, angular_kd));
     }
 
     // fix root
@@ -291,6 +288,7 @@ static void hair_scene() {
 
 static void pendulum_scene()
 {
+	free_data();
 	const double dist = 0.2;
 	const Vec2f center(0.0, 0.3);
 	const Vec2f offset(dist, 0.0);
@@ -318,56 +316,6 @@ static void init_system(void)
 		case 0: cloth_scene(); break;
 		case 1: hair_scene(); break;
 		case 2: pendulum_scene(); break;
-	}
-}
-
-static void init_hair()
-{
-	const int N_HAIR = 10;
-	const double segment = 0.08;
-	const Vec2f anchor(0.0, 0.7); // top of screen
-
-	// Vertical chain of particles
-	for (int i = 0; i < N_HAIR; i++)
-	{
-		pVector.push_back(new Particle(Vec2f(anchor[0], anchor[1] - i * segment)));
-	}
-
-	// Gravity
-	fVector.push_back(new GravityForce(pVector, Vec2f(0.0, -0.1)));
-
-	// Structural springs holding the chain together
-	for (int i = 0; i < N_HAIR - 1; i++)
-	{
-		fVector.push_back(new SpringForce(pVector[i], pVector[i + 1], segment, 20.0, 1.0));
-	}
-
-	// Angular springs on every triplet (rest angle = pi means "straight")
-	for (int i = 0; i < N_HAIR - 2; i++)
-	{
-		fVector.push_back(new AngularSpring(pVector[i], pVector[i + 1], pVector[i + 2], M_PI, 5.0, 0.1));
-	}
-
-	// Pin the top particle — mark Pinned so implicit Euler enforces Δv=0
-	pVector[0]->m_Pinned = true;
-	cVector.push_back(new PointConstraintX(pVector[0], anchor[0]));
-	cVector.push_back(new PointConstraintY(pVector[0], anchor[1]));
-}
-
-static void init_system(void)
-{
-	free_data();
-	switch (scene_type)
-	{
-	case SCENE_PENDULUM:
-		init_pendulum();
-		break;
-	case SCENE_CLOTH:
-		init_cloth();
-		break;
-	case SCENE_HAIR:
-		init_hair();
-		break;
 	}
 }
 
@@ -925,7 +873,8 @@ int main(int argc, char **argv)
 	printf("p/o       - Increase/decrease dt (timestep)\n");
 	printf("i/u       - Increase/decrease mouse spring stiffness\n");
 	printf("k/j       - Increase/decrease mouse damping\n");
-	printf("s         - Toggle sqrt formula for rod constraints\n");
+	printf("s         - Switch between scenes\n");
+	printf("r		  - Toggle between sqrt and squared formula for RodConstraint\n");
 	printf("w         - Toggle wind force\n");
 	printf("f         - Toggle fixing top row of cloth\n");
 	printf("c         - Clear/reset simulation\n");

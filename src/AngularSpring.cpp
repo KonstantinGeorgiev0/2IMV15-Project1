@@ -12,10 +12,10 @@ void AngularSpring::apply() {
   Vec2f u = m_a->m_Position - m_b->m_Position;
   Vec2f v = m_c->m_Position - m_b->m_Position;
 
-  // Squared lengths (Vec2f operator* is dot product in this codebase)
+  // Squared lengths
   float u_len_sq = u * u;
   float v_len_sq = v * v;
-  // Raise threshold to 1e-4 to avoid near-zero arm blow-up (force ~ 1/|u|²)
+  // Avoid arm blowup
   if (u_len_sq < 1e-4f || v_len_sq < 1e-4f) return;
 
   // 2D scalar cross and dot
@@ -27,7 +27,7 @@ void AngularSpring::apply() {
 
   // Angle error, normalized to (-pi, pi] to avoid wrap-around spike at rest_angle = pi
   float dtheta = theta - (float)m_rest_angle;
-// Wrap to (-pi, pi] to handle the atan2 sign flip at +-pi
+  // Wrap to (-pi, pi] to handle the atan2 sign flip at +-pi
   while (dtheta >  M_PI) dtheta -= 2.0f * (float)M_PI;
   while (dtheta < -M_PI) dtheta += 2.0f * (float)M_PI;
 
@@ -62,7 +62,7 @@ void AngularSpring::apply() {
   F_a = clamp2(F_a);
   F_c = clamp2(F_c);
 
-  // Apply, conserving momentum
+  // Apply conserving momentum
   m_a->m_Force += F_a;
   m_c->m_Force += F_c;
   m_b->m_Force -= (F_a + F_c);
