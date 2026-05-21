@@ -74,20 +74,12 @@ void ParticleDerivative(std::vector<Particle*> pVector,
 	// fill dst with derivatives
 	for(ii=0; ii<size; ii++)
 	{
-		if (pVector[ii]->m_Pinned) {
-			// pinned particles don't move
-			dst.push_back(0.0f); // xdot = 0
-			dst.push_back(0.0f); // ydot = 0
-			dst.push_back(0.0f); // vdot_x = 0
-			dst.push_back(0.0f); // vdot_y = 0
-		} else {
-			// xdot = v
-			dst.push_back(pVector[ii]->m_Velocity[0]);
-			dst.push_back(pVector[ii]->m_Velocity[1]);
-			// vdot = f/m
-			dst.push_back(pVector[ii]->m_Force[0] / pVector[ii]->m_Mass);
-			dst.push_back(pVector[ii]->m_Force[1] / pVector[ii]->m_Mass);
-		}
+		// xdot = v
+		dst.push_back(pVector[ii]->m_Velocity[0]);
+		dst.push_back(pVector[ii]->m_Velocity[1]);
+		// vdot = f/m
+		dst.push_back(pVector[ii]->m_Force[0] / pVector[ii]->m_Mass);
+		dst.push_back(pVector[ii]->m_Force[1] / pVector[ii]->m_Mass);
 	}
 	
 }

@@ -14,6 +14,7 @@
 #include "WindForce.h"
 #include "CollisionHandler.h"
 #include "AngularSpring.h"
+#include "TouchSphereForce.h"
 
 #include <GLUT/glut.h>
 #include <stdio.h>
@@ -41,10 +42,11 @@ enum SceneType
 {
 	SCENE_PENDULUM = 0,
 	SCENE_CLOTH = 1,
-	SCENE_HAIR = 2
+	SCENE_HAIR = 2,
+	SCENE_BALL = 3,
 };
 float dt = 0.01f;
-bool use_sqrt_rodConstraint = true;
+bool use_sqrt_rodConstraint = true;	   // toggle between squared and sqrt formula for RodConstraint
 static double mouse_ks = 0.50;		   // spring stiffness for mouse interaction
 static double mouse_kd = 0.10;		   // damping
 static WindForce *windForce = NULL;	   // global pointer to the wind force
@@ -54,6 +56,7 @@ static bool enableWind = false; // toggle wind force
 static int scene_type = 0; // 0 for cloth, 1 for hair
 const Vec2f gravityDirection(0.0, -1.0); // gravity points down
 const float gravityStrength = 0.1f;
+static float cameraX = 0.0f; // track camera X position
 
 // cloth variables
 int cloth_rows = 5; // rows
@@ -71,6 +74,10 @@ float particle_diameter = 0.045f; // diameter of each particle
 int hair_segments = 5; // number of segments in the hair
 float hair_segment_length = 0.05f; // length of each hair segment
 
+// sphere force
+float touchSphereRadius = 0.2f;
+float touchSphereMagnitude = 3.0f;
+
 // static Particle *pList;
 static std::vector<Particle *> pVector;
 static std::vector<Wall> wallVector;
@@ -85,7 +92,8 @@ static int hmx, hmy;
 
 static std::vector<Constraint *> cVector;
 
-static MouseSpringForce *mouseSpring = NULL;
+static MouseSpringForce* mouseSpring = NULL;
+static TouchSphereForce* touchSphereForce = NULL;
 static std::vector<Force *> fVector;
 
 /*
@@ -108,7 +116,7 @@ static void free_data(void)
 		delete fVector[i];
 	}
 	fVector.clear();
-	windForce = NULL;  // was owned by fVector, now deleted
+	windForce = NULL;
 
 	for (size_t i = 0; i < cVector.size(); i++)
 	{
@@ -129,9 +137,6 @@ static void clear_data(void)
 
 /* Scenes */
 static void cloth_scene() {
-	// clean up from previous runs
-  	free_data();
-
 	// initialize walls
 	wallVector.clear();
 	wallVector.emplace_back(Vec2f(-1.0f, -0.92f), Vec2f(1.0f, -0.92f));
@@ -143,7 +148,7 @@ static void cloth_scene() {
 		for (int j = 0; j < cloth_columns; ++j)
 		{
 			float x = j * cloth_spacing - (cloth_columns - 1) * cloth_spacing / 2.0f; // center the cloth
-			float y = 0.9f - i * cloth_spacing;										  // start from almost top and go down
+			float y = 0.9f - i * cloth_spacing; // start from almost top and go down
 			pVector.push_back(new Particle(Vec2f(x, y)));
 		}
 	}
@@ -169,15 +174,11 @@ static void cloth_scene() {
 			if (j < cloth_columns - 1)
 			{
 				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + 1], cloth_spacing, spring_ks, spring_kd));
-				// add structural spring to rod constraint
-				// cVector.push_back(new RodConstraint(pVector[idx], pVector[idx + 1], cloth_spacing, use_sqrt_rodConstraint));
 			}
 			// connect to particle below
 			if (i < cloth_rows - 1)
 			{
 				fVector.push_back(new SpringForce(pVector[idx], pVector[idx + cloth_columns], cloth_spacing, spring_ks, spring_kd));
-				// add this as well
-				// cVector.push_back(new RodConstraint(pVector[idx], pVector[idx + cloth_columns], cloth_spacing, use_sqrt_rodConstraint));
 			}
 			// shear springs
 			// connect to particle diagonally down-right
@@ -220,7 +221,6 @@ static void cloth_scene() {
 			cVector.push_back(new PointConstraintX(p, p->m_ConstructPos[0]));
 			// y dir fix
 			cVector.push_back(new PointConstraintY(p, p->m_ConstructPos[1]));
-			p->m_Pinned = true;
 		}
 	} else if (fixCornersBool) {
 		// fix top row corners
@@ -228,8 +228,6 @@ static void cloth_scene() {
 		cVector.push_back(new PointConstraintY(pVector[0], pVector[0]->m_ConstructPos[1]));
 		cVector.push_back(new PointConstraintX(pVector[cloth_columns - 1], pVector[cloth_columns - 1]->m_ConstructPos[0]));
 		cVector.push_back(new PointConstraintY(pVector[cloth_columns - 1], pVector[cloth_columns - 1]->m_ConstructPos[1]));
-		pVector[0]->m_Pinned = true;
-		pVector[cloth_columns - 1]->m_Pinned = true;
 	}
 
 	// add wind force
@@ -238,7 +236,6 @@ static void cloth_scene() {
 }
 
 static void hair_scene() {
-	free_data();
     float rest_len = hair_segment_length;
     float perturb_offset = rest_len * 0.5f;
 
@@ -265,7 +262,8 @@ static void hair_scene() {
         // structural edge
         fVector.push_back(new SpringForce(main_nodes[i], main_nodes[i+1], rest_len, spring_ks, spring_kd));
         
-        // triangle edges (main node to offset node)
+        // triangle edges
+		// main node to offset node
         float diag_len = sqrt(pow(perturb_offset, 2) + pow(rest_len * 0.5f, 2));
         fVector.push_back(new SpringForce(main_nodes[i], offset_nodes[i], diag_len, spring_ks, spring_kd));
         fVector.push_back(new SpringForce(main_nodes[i+1], offset_nodes[i], diag_len, spring_ks, spring_kd));
@@ -275,7 +273,6 @@ static void hair_scene() {
     for (int i = 0; i < hair_segments - 2; ++i) {
         double angular_ks = spring_ks * 0.005; 
         double angular_kd = spring_kd * 0.005;
-        // enforce 180 degrees between consecutive main segments using the triangles
         fVector.push_back(new AngularSpring(main_nodes[i], main_nodes[i+1], main_nodes[i+2], M_PI, angular_ks, angular_kd));
     }
 
@@ -283,12 +280,16 @@ static void hair_scene() {
     cVector.push_back(new PointConstraintX(main_nodes[0], main_nodes[0]->m_ConstructPos[0]));
     cVector.push_back(new PointConstraintY(main_nodes[0], main_nodes[0]->m_ConstructPos[1]));
 
-    fVector.push_back(new GravityForce(pVector, Vec2f(0.0, -1.0) * 0.1f));
+	// gravity force
+    fVector.push_back(new GravityForce(pVector, gravityDirection * gravityStrength));
+
+	// wind force
+	windForce = new WindForce(pVector, windDirection, windStrength, enableWind);
+	fVector.push_back(windForce);
 }
 
 static void pendulum_scene()
 {
-	free_data();
 	const double dist = 0.2;
 	const Vec2f center(0.0, 0.3);
 	const Vec2f offset(dist, 0.0);
@@ -306,6 +307,81 @@ static void pendulum_scene()
 	cVector.push_back(new CircularWireConstraint(pVector[0], center, dist));
 	// rod between 1st and 2nd; 2nd and 3rd
 	cVector.push_back(new RodConstraint(pVector[1], pVector[2], dist, use_sqrt_rodConstraint));
+
+	// wind force
+	windForce = new WindForce(pVector, windDirection, windStrength, enableWind);
+	fVector.push_back(windForce);
+}
+
+static void ball_scene() {
+	wallVector.clear();
+
+	// procedural terrain for the floor
+	float x_start = -2.0f;
+	float x_end = 1000.0f;
+	float step = 0.2f;
+	float prev_x = x_start;
+	float prev_y = -0.6f; // start height
+	
+	for (float x = x_start + step; x <= x_end; x += step) {
+		// rolling hills
+		float y = -0.7f + sin(x * 1.5f) * 0.15f + sin(x * 0.5f) * 0.15f;
+		
+		Wall floor_segment(Vec2f(prev_x, prev_y), Vec2f(x, y));
+		floor_segment.orientNormalToPoint(Vec2f((prev_x + x) / 2.0f, y + 1.0f)); // normal points up
+		wallVector.push_back(floor_segment);
+		
+		prev_x = x;
+		prev_y = y;
+	}
+	
+	// endless ceiling
+	Wall ceiling(Vec2f(x_start, 0.9f), Vec2f(x_end, 0.9f)); // normal points down
+	ceiling.orientNormalToPoint(Vec2f(0.0f, 0.0f));
+	wallVector.push_back(ceiling);
+	
+	// left boundary wall
+	Wall leftWall(Vec2f(x_start, 1.0f), Vec2f(x_start, -1.0f)); // normal points right
+	leftWall.orientNormalToPoint(Vec2f(0.0f, 0.0f)); 
+	wallVector.push_back(leftWall);
+
+	// ball particles
+	int num_nodes = 14;
+	float radius = 0.2f;
+	Vec2f center(0.0f, 0.0f);
+	
+	// center particle
+	Particle* pCenter = new Particle(center);
+	pVector.push_back(pCenter);
+	
+	// ring particles
+	for (int i = 0; i < num_nodes; i++) {
+		float angle = i * 2.0f * M_PI / num_nodes;
+		pVector.push_back(new Particle(center + Vec2f(cos(angle) * radius, sin(angle) * radius)));
+	}
+	
+	// use springs to form rigid structure
+	for (int i = 0; i < num_nodes; i++) {
+		int p_idx = i + 1; // start from next prtcl
+		
+		// spoke
+		fVector.push_back(new SpringForce(pCenter, pVector[p_idx], radius, spring_ks * 5.0f, spring_kd));
+		
+		// connect to every other boundary particle
+		for (int j = i + 1; j < num_nodes; j++) {
+			int other_idx = j + 1;
+			Vec2f dist_vec = pVector[p_idx]->m_ConstructPos - pVector[other_idx]->m_ConstructPos;
+			float dist_len = sqrt(dist_vec[0]*dist_vec[0] + dist_vec[1]*dist_vec[1]);
+			fVector.push_back(new SpringForce(pVector[p_idx], pVector[other_idx], dist_len, spring_ks * 1.5f, spring_kd));
+		}
+	}
+
+	// gravity force
+	fVector.push_back(new GravityForce(pVector, gravityDirection * gravityStrength));
+
+	// wind force
+	windForce = new WindForce(pVector, windDirection, windStrength, enableWind);
+	fVector.push_back(windForce);
 }
 
 static void init_system(void)
@@ -316,6 +392,7 @@ static void init_system(void)
 		case 0: cloth_scene(); break;
 		case 1: hair_scene(); break;
 		case 2: pendulum_scene(); break;
+		case 3: ball_scene(); break;
 	}
 }
 
@@ -330,7 +407,15 @@ static void pre_display(void)
 	glViewport(0, 0, win_x, win_y);
 	glMatrixMode(GL_PROJECTION);
 	glLoadIdentity();
-	gluOrtho2D(-1.0, 1.0, -1.0, 1.0);
+	
+	// track ball during its scene
+	if (scene_type == SCENE_BALL && !pVector.empty()) {
+		cameraX = pVector[0]->m_Position[0]; // track center particle of the ball
+	} else {
+		cameraX = 0.0f;
+	}
+	
+	gluOrtho2D(cameraX - 1.0, cameraX + 1.0, -1.0, 1.0);
 	glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 	glClear(GL_COLOR_BUFFER_BIT);
 }
@@ -453,7 +538,7 @@ static void key_func(unsigned char key, int x, int y)
 	{
 	case '1':
 		if (scene_type == SCENE_HAIR) {
-			printf("Euler is unstable for hair angular springs — keeping Implicit Euler.\n");
+			printf("Euler is unstable for hair angular springs.\n");
 			break;
 		}
 		solver_type = 0;
@@ -461,7 +546,7 @@ static void key_func(unsigned char key, int x, int y)
 		break;
 	case '2':
 		if (scene_type == SCENE_HAIR) {
-			printf("Midpoint is unstable for hair angular springs — keeping Implicit Euler.\n");
+			printf("Midpoint is unstable for hair angular springs.\n");
 			break;
 		}
 		solver_type = 1;
@@ -504,9 +589,9 @@ static void key_func(unsigned char key, int x, int y)
 		break;
 
 	case 's':
-		scene_type = (scene_type + 1) % 3; // toggle between scenes
+		scene_type = (scene_type + 1) % 4; // toggle between scenes
 		init_system();
-		printf("Switched to %s scene.\n", scene_type == 0 ? "cloth" : (scene_type == 1 ? "hair" : "pendulum"));
+		printf("Switched to %s scene.\n", scene_type == 0 ? "cloth" : (scene_type == 1 ? "hair" : (scene_type == 2 ? "pendulum" : "ball")));
 		break;
 
 	case 'r':
@@ -577,31 +662,34 @@ static void key_func(unsigned char key, int x, int y)
 	{
 		int choice;
 		printf("\n=== Modify Simulation Parameters ===\n");
-		printf("1. Cloth Rows (current: %d)\n", cloth_rows);
-		printf("2. Cloth Columns (current: %d)\n", cloth_columns);
+		printf("1. Cloth Rows & Columns (current: %d; %d)\n", cloth_rows, cloth_columns);
+		printf("2. Spring Stiffness [ks] and Damping [kd] (current: %f; %f)\n", spring_ks, spring_kd);
 		printf("3. Cloth Spacing (current: %f)\n", cloth_spacing);
-		printf("4. Spring Stiffness [ks] (current: %f)\n", spring_ks);
-		printf("5. Spring Damping [kd] (current: %f)\n", spring_kd);
-		printf("6. Time Step [dt] (current: %f)\n", dt);
-		printf("7. Hair Segments (current: %d)\n", hair_segments);
-		printf("8. Hair Segment Length (current: %f)\n", hair_segment_length);
-		printf("Select an option (1-8): ");
+		printf("4. Time Step [dt] (current: %f)\n", dt);
+		printf("5. Hair Segments and Length(current: %d; %f)\n", hair_segments, hair_segment_length);
+		printf("6. Mouse Spring Stiffness [mouse_ks] and Damping [mouse_kd] (current: %f; %f)\n", mouse_ks, mouse_kd);
+		printf("7. Touch Force Radius and Magnitude(current: %f; %f)\n", touchSphereRadius, touchSphereMagnitude);
+		printf("Select an option (1-7): ");
 		
 		std::cin >> choice;
 
 		if (choice == 1) {
 			printf("Enter new number of cloth rows: ");
 			std::cin >> cloth_rows;
-			if (cloth_rows < 2) cloth_rows = 2; // prevent zero/negative size crashes
-			init_system(); // rebuilds scene 
-			printf("Scene rebuilt with %d rows.\n", cloth_rows);
-		} 
-		else if (choice == 2) {
 			printf("Enter new number of cloth columns: ");
 			std::cin >> cloth_columns;
 			if (cloth_columns < 2) cloth_columns = 2;
+			if (cloth_rows < 2) cloth_rows = 2;
+			init_system(); // rebuilds scene 
+			printf("Scene rebuilt with %d rows and %d cols.\n", cloth_rows, cloth_columns);
+		} 
+		else if (choice == 2) {
+			printf("Enter new spring stiffness (ks): ");
+			std::cin >> spring_ks;
+			printf("Enter new spring damping (kd): ");
+			std::cin >> spring_kd;
 			init_system(); // rebuilds scene
-			printf("Scene rebuilt with %d columns.\n", cloth_columns);
+			printf("Scene rebuilt with ks = %f and kd = %f.\n", spring_ks, spring_kd);
 		} 
 		else if (choice == 3) {
 			printf("Enter new cloth spacing: ");
@@ -611,35 +699,35 @@ static void key_func(unsigned char key, int x, int y)
 			printf("Scene rebuilt with cloth spacing = %f.\n", cloth_spacing);
 		}
 		else if (choice == 4) {
-			printf("Enter new spring stiffness (ks): ");
-			std::cin >> spring_ks;
-			init_system(); // rebuilds scene
-			printf("Scene rebuilt with ks = %f.\n", spring_ks);
-		} 
-		else if (choice == 5) {
-			printf("Enter new spring damping (kd): ");
-			std::cin >> spring_kd;
-			init_system(); // rebuilds scene
-			printf("Scene rebuilt with kd = %f.\n", spring_kd);
-		} 
-		else if (choice == 6) {
 			printf("Enter new time step (dt): ");
 			std::cin >> dt;
 			printf("Time step updated to dt = %f.\n", dt);
-		}
-		else if (choice == 7) {
+		} 
+		else if (choice == 5) {
 			printf("Enter new hair segments amount.\n");
 			std::cin >> hair_segments;
 			if (hair_segments < 2) hair_segments = 2;
-			init_system();
-			printf("Scene rebuilt with hair segments = %d.\n", hair_segments);
-		}
-		else if (choice == 8) {
 			printf("Enter new hair segment length.\n");
 			std::cin >> hair_segment_length;
 			if (hair_segment_length <= 0) hair_segment_length = 0.01f;
 			init_system();
-			printf("Scene rebuilt with hair segment length = %f.\n", hair_segment_length);
+			printf("Scene rebuilt with hair segments = %d and length = %f.\n", hair_segments, hair_segment_length);
+		} 
+		else if (choice == 6) {
+			printf("Enter new mouse spring stiffness (mouse_ks): ");
+			std::cin >> mouse_ks;
+			printf("Enter new mouse spring damping (mouse_kd): ");
+			std::cin >> mouse_kd;
+			init_system();
+			printf("Scene rebuilt with mouse_ks = %f, and mouse_kd = %f.\n", mouse_ks, mouse_kd);
+		}
+		else if (choice == 7) {
+			printf("Enter new touch force radius: ");
+			std::cin >> touchSphereRadius;
+			printf("Enter new touch force magnitude: ");
+			std::cin >> touchSphereMagnitude;
+			init_system();
+			printf("Scene rebuilt with touch force radius = %f, and magnitude = %f.\n", touchSphereRadius, touchSphereMagnitude);
 		}
 		else {
 			printf("Invalid selection.\n");
@@ -655,7 +743,7 @@ static void key_func(unsigned char key, int x, int y)
 		printf("i/u       - Increase/decrease spring stiffness\n");
 		printf("k/j       - Increase/decrease spring damping\n");
 		printf("w         - Toggle wind force\n");
-		printf("s         - Switch between cloth and hair scenes\n");
+		printf("s         - Switch between scenes\n");
 		printf("r         - Toggle sqrt formula for rod constraints\n");
 		printf("c         - Clear/reset simulation\n");
 		printf("d         - Toggle frame dumping\n");
@@ -671,10 +759,10 @@ static void key_func(unsigned char key, int x, int y)
 	}
 }
 
-// Convert screen coordinates to world coordinates in the range [-1, 1]
+// Convert screen coordinates to world coordinates in the range [-1, 1] shifted by camera
 Vec2f screenToWorld(int x, int y)
 {
-	float wx = (2.0f * x) / (float)win_x - 1.0f;
+	float wx = (2.0f * x) / (float)win_x - 1.0f + cameraX;
 	float wy = 1.0f - (2.0f * y) / (float)win_y;
 	return Vec2f(wx, wy);
 }
@@ -699,9 +787,22 @@ static void mouse_func(int button, int state, int x, int y)
 		}
 		if (nearest)
 		{
-			mouseSpring = new MouseSpringForce(nearest, mouse_ks, mouse_kd);
-			mouseSpring->updateMousePosition(worldPos[0], worldPos[1]);
-			fVector.push_back(mouseSpring);
+			if (scene_type == SCENE_BALL) {
+				// push ball if scene ball 
+				Vec2f dir = nearest->m_Position - worldPos;
+				float dist = sqrt(dir[0]*dir[0] + dir[1]*dir[1]);
+				if (dist > 0.001f) {
+					Vec2f impulse = (dir / dist) * 2.5f;
+					// apply velocity to all particles
+					for (auto* p : pVector) {
+						p->m_Velocity += impulse;
+					}
+				}
+			} else {
+				mouseSpring = new MouseSpringForce(nearest, mouse_ks, mouse_kd);
+				mouseSpring->updateMousePosition(worldPos[0], worldPos[1]);
+				fVector.push_back(mouseSpring);
+			}
 		}
 	}
 	else if (button == GLUT_LEFT_BUTTON && state == GLUT_UP)
@@ -721,24 +822,42 @@ static void mouse_func(int button, int state, int x, int y)
 			mouseSpring = NULL;
 		}
 	}
-	// omx = mx = x;
-	// omx = my = y;
-
-	// if(!mouse_down[0]){hmx=x; hmy=y;}
-	// if(mouse_down[button]) mouse_release[button] = state == GLUT_UP;
-	// if(mouse_down[button]) mouse_shiftclick[button] = glutGetModifiers()==GLUT_ACTIVE_SHIFT;
-	// mouse_down[button] = state == GLUT_DOWN;
+	else if (button == GLUT_RIGHT_BUTTON && state == GLUT_DOWN) 
+	{
+		// mouse touch force with radius and max force magnitude
+		touchSphereForce = new TouchSphereForce(pVector, touchSphereRadius, touchSphereMagnitude); 
+		touchSphereForce->updateMousePosition(worldPos[0], worldPos[1]);
+		fVector.push_back(touchSphereForce);
+	}
+	else if (button == GLUT_RIGHT_BUTTON && state == GLUT_UP) 
+	{
+		if (touchSphereForce)
+		{
+			for (auto it = fVector.begin(); it != fVector.end(); ++it)
+			{
+				if (*it == touchSphereForce)
+				{
+					fVector.erase(it);
+					break;
+				}
+			}
+			delete touchSphereForce;
+			touchSphereForce = NULL;
+		}
+	}
 }
 
 static void motion_func(int x, int y)
 {
+	Vec2f worldPos = screenToWorld(x,y);
 	if (mouseSpring)
 	{
-		Vec2f worldPos = screenToWorld(x, y);
 		mouseSpring->updateMousePosition(worldPos[0], worldPos[1]);
 	}
-	// mx = x;
-	// my = y;
+	if (touchSphereForce) 
+	{
+		touchSphereForce->updateMousePosition(worldPos[0], worldPos[1]);
+	}
 }
 
 static void reshape_func(int width, int height)
@@ -774,7 +893,7 @@ static void idle_func(void)
 			}
 			float dx = p->m_Position[0] - p->m_ConstructPos[0];
 			float dy = p->m_Position[1] - p->m_ConstructPos[1];
-			if (dx*dx + dy*dy > 25.0f) { 
+			if (scene_type != SCENE_BALL && dx*dx + dy*dy > 25.0f) { 
 				explosion_detected = true;
 				break;
 			}
@@ -869,7 +988,7 @@ int main(int argc, char **argv)
 
 	printf("\n=== Keyboard Controls ===\n");
 	printf("v         - Open parameter modification menu in console\n");
-	printf("1/2/3     - Switch solver (Euler/Midpoint/RK4)\n");
+	printf("1/2/3/4/5 - Switch solver (Euler/Midpoint/RK4/ImplicitEuler/Verlet)\n");
 	printf("p/o       - Increase/decrease dt (timestep)\n");
 	printf("i/u       - Increase/decrease mouse spring stiffness\n");
 	printf("k/j       - Increase/decrease mouse damping\n");

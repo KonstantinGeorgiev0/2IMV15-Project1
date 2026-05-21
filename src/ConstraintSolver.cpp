@@ -3,8 +3,8 @@
 #include <vector>
 #include <cstddef>
 
-static const double K_S = 1.0;  // spring-like correction on C
-static const double K_D = 1.0;  // damper-like correction on C_dot
+static const double K_S = 30.0;  // spring-like correction on C
+static const double K_D = 10.0;  // damper-like correction on C_dot
 
 static int particle_index(Particle* p, const std::vector<Particle*>& particles)
 {

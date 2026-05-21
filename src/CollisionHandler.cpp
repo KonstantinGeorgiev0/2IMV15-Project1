@@ -11,21 +11,26 @@ void CollisionHandler::handleWallCollisions(std::vector<Particle*>& particles, c
         for (Particle* p : particles) {
             Vec2f X = p->m_Position;
             float t = ((X - wall.a) * edge) / edgeLenSq;
-            if (t < 0.0f) t = 0.0f;
-            else if (t > 1.0f) t = 1.0f;
+            if (t < 0.0f || t > 1.0f) continue;
             Vec2f closest = wall.a + edge * t;
             Vec2f diff = X - closest;
             float dist = diff * wall.normal;
 
             if (dist < 0.0f) {
                 p->m_Position -= dist * wall.normal;
+
                 Vec2f v = p->m_Velocity;
                 float v_dot_n = v[0] * wall.normal[0] + v[1] * wall.normal[1];
-                Vec2f v_n(v_dot_n * wall.normal[0], v_dot_n * wall.normal[1]);
-                Vec2f v_t(v[0] - v_n[0], v[1] - v_n[1]);
-                v_t[0] *= (1.0f - friction);
-                v_t[1] *= (1.0f - friction);
-                p->m_Velocity = v_t - restitution * v_n;
+                
+                // only bounce if movign towards the wall
+                if (v_dot_n < 0.0f) {
+                    Vec2f v_n(v_dot_n * wall.normal[0], v_dot_n * wall.normal[1]);
+                    Vec2f v_t(v[0] - v_n[0], v[1] - v_n[1]);
+                    v_t[0] *= (1.0f - friction);
+                    v_t[1] *= (1.0f - friction);
+                    
+                    p->m_Velocity = v_t - restitution * v_n;
+                }
             }
         }
     }
