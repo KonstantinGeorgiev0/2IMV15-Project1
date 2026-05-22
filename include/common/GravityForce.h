@@ -1,7 +1,3 @@
-//
-// Created by Cristiana Carbunaru on 09/05/2026.
-//
-
 #ifndef INC_2IMV15_PROJECT1_GRAVITYFORCE_H
 #define INC_2IMV15_PROJECT1_GRAVITYFORCE_H
 
