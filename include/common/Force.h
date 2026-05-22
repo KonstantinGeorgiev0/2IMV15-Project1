@@ -15,4 +15,10 @@ public:
     virtual void addJacobianMultiplication(double* dx, double* dv, double* df, int N) {}
     virtual void apply() = 0;
     virtual void draw() = 0;
+    
+    void setEnabled(bool enabled) { m_enabled = enabled; }
+    bool isEnabled() const { return m_enabled; }
+
+protected:
+    bool m_enabled = true;
 };

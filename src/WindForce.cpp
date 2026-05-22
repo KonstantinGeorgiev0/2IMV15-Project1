@@ -4,7 +4,9 @@
 
 WindForce::WindForce(
     const std::vector<Particle*>& particles, const Vec2f& windDirection, float windStrength, bool enabled)
-    : m_particles(particles), m_wind(windDirection), m_strength(windStrength), m_enabled(enabled) {}
+    : m_particles(particles), m_wind(windDirection), m_strength(windStrength) {
+    m_enabled = enabled;
+}
 
 void WindForce::apply() {
     if (!m_enabled) return;

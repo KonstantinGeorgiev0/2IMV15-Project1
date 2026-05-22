@@ -8,12 +8,10 @@ public:
     WindForce(const std::vector<Particle*>& particles, const Vec2f& windDirection, float windStrength, bool enabled);
     void apply() override;
     void draw() override;
-    void setEnabled(bool enabled) { m_enabled = enabled; }
 
 private:
     std::vector<Particle*> m_particles;
     Vec2f m_wind;
     float m_strength;
-    bool m_enabled = true;
     float m_phase = 0.0f;  // for oscillating gust effect
 };

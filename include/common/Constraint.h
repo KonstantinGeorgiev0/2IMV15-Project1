@@ -20,6 +20,12 @@ public:
     virtual std::vector<Vec2f> J_dot_rows() const = 0;
 
     virtual void draw() = 0;
+
+    void setEnabled(bool enabled) { m_enabled = enabled; }
+    bool isEnabled() const { return m_enabled; }
+
+protected:
+    bool m_enabled = true;
 };
 
 #endif

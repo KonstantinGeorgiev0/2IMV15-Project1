@@ -63,9 +63,8 @@ void ParticleDerivative(std::vector<Particle*> pVector,
 		pVector[ii]->m_Force = Vec2f(0.0, 0.0);
 	}
 
-	// compute forces
 	for (auto* f : fVector) {
-		f->apply();
+		if (f->isEnabled()) f->apply();
 	}
 
 	// apply constraints
@@ -196,7 +195,7 @@ public:
         }
 
         for (Force* f : fVector) {
-            f->addJacobianMultiplication(dx.data(), x, df.data(), N);
+            if (f->isEnabled()) f->addJacobianMultiplication(dx.data(), x, df.data(), N);
         }
 
         for (int i = 0; i < N; ++i) {
@@ -220,7 +219,7 @@ void implicit_euler(std::vector<Particle*>& pVector, std::vector<Force*>& fVecto
     std::vector<double> b(N2, 0.0); 
 
     for (Particle* p : pVector) p->clearForce();
-    for (Force* f : fVector) f->apply();
+    for (Force* f : fVector) if (f->isEnabled()) f->apply();
 	solve_constraints(pVector, cVector);
 
     std::vector<double> v0(N2);
@@ -233,7 +232,7 @@ void implicit_euler(std::vector<Particle*>& pVector, std::vector<Force*>& fVecto
     }
 
     for (Force* f : fVector) {
-        f->addJacobianMultiplication(v0.data(), zero_dv.data(), df_dx_v0.data(), N);
+        if (f->isEnabled()) f->addJacobianMultiplication(v0.data(), zero_dv.data(), df_dx_v0.data(), N);
     }
 
     for (int i = 0; i < N; ++i) {
@@ -260,7 +259,7 @@ void implicit_euler(std::vector<Particle*>& pVector, std::vector<Force*>& fVecto
     }
 
 	for (Particle* p : pVector) p->clearForce();
-	for (Force* f : fVector) f->apply();
+	for (Force* f : fVector) if (f->isEnabled()) f->apply();
 	solve_constraints(pVector, cVector);
 }
 
@@ -269,7 +268,7 @@ void verlet_step(std::vector<Particle*>& pVector, std::vector<Force*>& fVector, 
     std::vector<Vec2f> old_forces(N, Vec2f(0.0f, 0.0f));
 
     for (Particle* p : pVector) p->clearForce();
-    for (Force* f : fVector) f->apply();
+    for (Force* f : fVector) if (f->isEnabled()) f->apply();
 	solve_constraints(pVector, cVector);
 
     for (int i = 0; i < N; ++i) {
@@ -283,7 +282,7 @@ void verlet_step(std::vector<Particle*>& pVector, std::vector<Force*>& fVector, 
     }
 
     for (Particle* p : pVector) p->clearForce();
-    for (Force* f : fVector) f->apply();
+    for (Force* f : fVector) if (f->isEnabled()) f->apply();
 	solve_constraints(pVector, cVector);
 
     for (int i = 0; i < N; ++i) {

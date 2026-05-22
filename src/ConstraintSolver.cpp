@@ -59,12 +59,16 @@ public:
 void solve_constraints(std::vector<Particle*>& particles,
                        std::vector<Constraint*>& constraints)
 {
-    const int m = (int)constraints.size();
+    std::vector<Constraint*> active_constraints;
+    for (auto* c : constraints) {
+        if (c->isEnabled()) active_constraints.push_back(c);
+    }
+    const int m = (int)active_constraints.size();
     if (m == 0) return;
 
     std::vector<double> b(m, 0.0);
     for (int i = 0; i < m; i++) {
-        Constraint* c = constraints[i];
+        Constraint* c = active_constraints[i];
         std::vector<Particle*> cp = c->getParticles();
         std::vector<Vec2f> J_rows     = c->J_rows();
         std::vector<Vec2f> J_dot_rows = c->J_dot_rows();
@@ -86,7 +90,7 @@ void solve_constraints(std::vector<Particle*>& particles,
     // Set up the implicit matrix A = J W J^T
     JWJTMatrix A;
     A.particles   = &particles;
-    A.constraints = &constraints;
+    A.constraints = &active_constraints;
 
     // Solve A * lambda = b with conjugate gradient
     std::vector<double> lambda(m, 0.0);
@@ -97,7 +101,7 @@ void solve_constraints(std::vector<Particle*>& particles,
     // Constraint force = J^T lambda
     // Added to each touched particle's force
     for (int i = 0; i < m; i++) {
-        Constraint* c = constraints[i];
+        Constraint* c = active_constraints[i];
         std::vector<Particle*> cp = c->getParticles();
         std::vector<Vec2f> rows = c->J_rows();
         for (std::size_t k = 0; k < cp.size(); k++) {
