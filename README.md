@@ -54,11 +54,11 @@ Supported operating systems:
 
 The repository is currently pushed in a **macOS-ready configuration**.
 
-For setup instructions specific to your operating system, please refer to the provided platform-specific `.txt` files in the repository, i.e., 'compile_linux.txt', 'compile_mac.txt', or 'compile_win10.txt'.
+For setup instructions specific to your operating system, please refer to the provided platform-specific `.txt` files in the repository, i.e., `compile_linux.txt`, `compile_mac.txt`, or `compile_win10.txt`.
 
 ### Important
 
-As indicated in the platform-specific '.txt' files mentioned above, for **Windows** (and potentially some Linux environments), make sure to:
+As indicated in the platform-specific `.txt` files mentioned above, for **Windows** (and potentially some Linux environments), make sure to:
 
 - replace `GLUT` includes/usages with `GL`
 - verify linker/library settings for OpenGL and GLUT/freeGLUT
