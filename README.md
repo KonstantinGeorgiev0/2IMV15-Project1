@@ -1,6 +1,6 @@
-# Cloth and Large-Step Particle System Simulation - 2IMV15 Project 1
+# Cloth, Hair, and Large-Step Particle System Simulation - 2IMV15 Project 1
 
-In this repository, users can find a real-time cloth and particle simulation project developed for the TU/e course **2IMV15 Simulation in Computer Graphics** using **C++**, **OpenGL**, and **GLUT**.
+In this repository, users can find a real-time cloth, hair, and particle simulation project developed for the TU/e course **2IMV15 Simulation in Computer Graphics** using **C++**, **OpenGL**, and **GLUT**.
 
 The project implements multiple numerical integration schemes and interactive physical constraints for simulating deformable systems, such as cloth meshes and particle networks.
 
@@ -8,17 +8,26 @@ The project implements multiple numerical integration schemes and interactive ph
 
 ## Features
 
-- Real-time cloth simulation
-- Multiple numerical solvers:
+- Real-time particle and cloth simulation
+- Multiple predefined simulation scenes:
+  - Cloth
+  - Hair
+  - Pendulum
+  - Ball
+  - Bridge
+- Multiple numerical integration methods:
   - Euler
   - Midpoint
   - Runge-Kutta 4 (i.e., RK4)
-- Rod constraints and spring systems
-- Mouse interaction with configurable stiffness and damping
+  - Implicit Euler
+  - Verlet
+- Rod and wire constraints
+- Angular spring systems
 - Wind force simulation
-- Toggleable cloth fixation
+- Interactive force toggling
+- Runtime parameter editing
+- Mouse interaction support
 - Frame dumping support
-- Interactive runtime parameter controls
 
 ---
 
@@ -92,7 +101,7 @@ To launch the application, run the executable from the project root directory:
 
 # Runtime Controls
 
-The simulation initializes in a **paused configuration**. Use the keys mentioned below to control the scenes and interactions, respectively:
+The simulation initializes in a **paused configuration**. Use the keys listed below to control the simulation scenes and interactions:
 
 
 ## General Controls
@@ -104,6 +113,13 @@ The simulation initializes in a **paused configuration**. Use the keys mentioned
 | `c` | Clear/reset simulation |
 | `s` | Switch between scenes |
 
+Available scenes:
+- Cloth
+- Hair
+- Pendulum
+- Ball
+- Bridge
+  
 ---
 
 ## Solver Controls
@@ -113,6 +129,8 @@ The simulation initializes in a **paused configuration**. Use the keys mentioned
 | `1` | Euler solver |
 | `2` | Midpoint solver |
 | `3` | RK4 solver |
+| `4` | Implicit Euler solver |
+| `5` | Verlet solver |
 
 ---
 
@@ -121,18 +139,23 @@ The simulation initializes in a **paused configuration**. Use the keys mentioned
 | Key | Action |
 |---|---|
 | `p` / `o` | Increase/decrease timestep (`dt`) |
-| `i` / `u` | Increase/decrease mouse spring stiffness |
-| `k` / `j` | Increase/decrease mouse damping |
+| `i` / `u` | Increase/decrease spring stiffness (`ks`) |
+| `k` / `j` | Increase/decrease spring damping (`kd`) |
 
 ---
 
-## Physics Toggles
+## Physics, Force & Constraint Toggles
 
 | Key | Action |
 |---|---|
-| `r` | Toggle between sqrt and squared formula for `RodConstraint` |
+| `r` | Toggle between sqrt and squared (i.e., distance) formula for `RodConstraint` |
 | `w` | Toggle wind force |
 | `f` | Toggle fixing top row of cloth |
+| `g` | Toggle gravity |
+| `t` | Toggle spring forces |
+| `y` | Toggle rod constraints |
+| `x` | Toggle wire constraints |
+| `a` | Toggle angular springs (bridge scene) |
 
 ---
 
@@ -149,15 +172,15 @@ The simulation initializes in a **paused configuration**. Use the keys mentioned
 
 ```text
 .
-├── bin/                # Compiled executables
+├── bin/                # Compiled executables and runtime DLLs
 ├── include/            # Header files
 ├── lib/                # External libraries and framework dependencies
 ├── obj/                # Intermediate object files generated during compilation
 ├── src/                # Source files
 ├── Makefile
-├── compile_linux.txt
-├── compile_mac.txt
-├── compile_win10.txt
+├── compile_linux.txt   # Linux compilation instructions
+├── compile_mac.txt     # macOS compilation instructions
+├── compile_win10.txt   # Windows compilation instructions
 └── README.md
 ```
 
@@ -165,9 +188,9 @@ The simulation initializes in a **paused configuration**. Use the keys mentioned
 
 # Numerical Integration Methods
 
-For context, the simulation supports three integration methods:
+For context, the simulation supports five integration methods:
 
-### Euler
+### Explicit Euler
 Simple and fast, but less stable for stiff systems.
 
 ### Midpoint
@@ -175,6 +198,12 @@ Improved stability and accuracy over Euler.
 
 ### RK4 (i.e., Runge-Kutta 4)
 Most accurate integrator implemented in the project, at higher computational cost.
+
+### Implicit Euler
+More stable for stiff systems and larger timesteps.
+
+### Verlet
+Widely used in particle-based simulations due to its stability and simplicity.
 
 ---
 
@@ -190,6 +219,8 @@ This enables interactive deformation and testing of constraint behavior in real 
 
 - Simulation stability depends heavily on timestep size (`dt`)
 - RK4 provides the most stable behavior for complex cloth scenes
+- Euler and Midpoint solvers are unstable for the hair scene
+- Enabling wind automatically switches the solver to RK4 for stability
 - Wind and rod constraints can significantly affect performance and stability
 
 ---
