@@ -1,7 +1,3 @@
-//
-// Created by Cristiana Carbunaru on 09/05/2026.
-//
-
 #include "GravityForce.h"
 
 GravityForce::GravityForce(const std::vector<Particle*>& particles, const Vec2f& gravity)
