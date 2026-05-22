@@ -190,7 +190,7 @@ Available scenes:
 
 For context, the simulation supports five integration methods:
 
-### Explicit Euler
+### Euler
 Simple and fast, but less stable for stiff systems.
 
 ### Midpoint
