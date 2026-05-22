@@ -1,4 +1,4 @@
-// ParticleToy.cpp : Defines the entry point for the console application.
+// ParticleToy.cpp defines the entry point for the console application.
 //
 
 #include "CircularWireConstraint.h"
@@ -112,7 +112,7 @@ free/clear/allocate simulation data
 
 static void free_data(void)
 {
-	// clean up particles, forces and constraints
+	// Clean up particles, forces and constraints
 	for (size_t i = 0; i < pVector.size(); i++)
 	{
 		delete pVector[i];
