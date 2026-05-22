@@ -44,6 +44,7 @@ enum SceneType
 	SCENE_CLOTH = 1,
 	SCENE_HAIR = 2,
 	SCENE_BALL = 3,
+	SCENE_BRIDGE = 4,
 };
 float dt = 0.01f;
 bool use_sqrt_rodConstraint = true;	   // toggle between squared and sqrt formula for RodConstraint
@@ -53,6 +54,10 @@ static WindForce *windForce = NULL;	   // global pointer to the wind force
 static Vec2f windDirection(-1.0, 0.0); // blow left
 static float windStrength = 0.15f;
 static bool enableWind = false; // toggle wind force
+static bool enableGravity = true;
+static bool enableSpring = true;
+static bool enableRod = true;
+static bool enableWire = true;
 static int scene_type = 0; // 0 for cloth, 1 for hair
 const Vec2f gravityDirection(0.0, -1.0); // gravity points down
 const float gravityStrength = 0.1f;
@@ -78,6 +83,9 @@ float hair_segment_length = 0.05f; // length of each hair segment
 float touchSphereRadius = 0.2f;
 float touchSphereMagnitude = 3.0f;
 
+// bridge
+bool use_angular_springs_bridge = true;
+
 // static Particle *pList;
 static std::vector<Particle *> pVector;
 static std::vector<Wall> wallVector;
@@ -88,7 +96,7 @@ static int mouse_down[3];
 static int mouse_release[3];
 static int mouse_shiftclick[3];
 static int omx, omy, mx, my;
-static int hmx, hmy;
+// static int hmx, hmy;
 
 static std::vector<Constraint *> cVector;
 
@@ -384,6 +392,49 @@ static void ball_scene() {
 	fVector.push_back(windForce);
 }
 
+static void bridge_scene() {
+	wallVector.clear();
+
+	int num_bridge_nodes = 20;
+	float bridge_length = 1.6f; // from -0.8 to 0.8
+	float segment_length = bridge_length / (num_bridge_nodes - 1);
+	float start_x = -0.8f;
+	float y_pos = 0.5f;
+
+	// create particles
+	for (int i = 0; i < num_bridge_nodes; ++i) {
+		pVector.push_back(new Particle(Vec2f(start_x + i * segment_length, y_pos)));
+	}
+
+	// create normal springs
+	for (int i = 0; i < num_bridge_nodes - 1; ++i) {
+		fVector.push_back(new SpringForce(pVector[i], pVector[i+1], segment_length, spring_ks, spring_kd));
+	}
+
+	// create angular springs
+	for (int i = 0; i < num_bridge_nodes - 2; ++i) {
+		double angular_ks = spring_ks * 0.005; 
+		double angular_kd = spring_kd * 0.005;
+		if (use_angular_springs_bridge) {
+			fVector.push_back(new AngularSpring(pVector[i], pVector[i+1], pVector[i+2], M_PI, angular_ks, angular_kd));
+		}
+	}
+
+	// anchor the ends
+	cVector.push_back(new PointConstraintX(pVector[0], pVector[0]->m_ConstructPos[0]));
+	cVector.push_back(new PointConstraintY(pVector[0], pVector[0]->m_ConstructPos[1]));
+	
+	cVector.push_back(new PointConstraintX(pVector[num_bridge_nodes - 1], pVector[num_bridge_nodes - 1]->m_ConstructPos[0]));
+	cVector.push_back(new PointConstraintY(pVector[num_bridge_nodes - 1], pVector[num_bridge_nodes - 1]->m_ConstructPos[1]));
+
+	// gravity force
+	fVector.push_back(new GravityForce(pVector, gravityDirection * gravityStrength));
+
+	// wind force
+	windForce = new WindForce(pVector, windDirection, windStrength, enableWind);
+	fVector.push_back(windForce);
+}
+
 static void init_system(void)
 {
 	free_data();
@@ -393,6 +444,16 @@ static void init_system(void)
 		case 1: hair_scene(); break;
 		case 2: pendulum_scene(); break;
 		case 3: ball_scene(); break;
+		case 4: bridge_scene(); break;
+	}
+
+	for (Force *f : fVector) {
+		if (dynamic_cast<GravityForce*>(f)) f->setEnabled(enableGravity);
+		if (dynamic_cast<SpringForce*>(f) || dynamic_cast<AngularSpring*>(f)) f->setEnabled(enableSpring);
+	}
+	for (Constraint *c : cVector) {
+		if (dynamic_cast<RodConstraint*>(c)) c->setEnabled(enableRod);
+		if (dynamic_cast<CircularWireConstraint*>(c)) c->setEnabled(enableWire);
 	}
 }
 
@@ -484,7 +545,7 @@ static void get_from_UI()
 {
 	int i, j;
 	// int size, flag;
-	int hi, hj;
+	// int hi, hj;
 	// float x, y;
 	if (!mouse_down[0] && !mouse_down[2] && !mouse_release[0] && !mouse_shiftclick[0] && !mouse_shiftclick[2])
 		return;
@@ -503,8 +564,8 @@ static void get_from_UI()
 	{
 	}
 
-	hi = (int)((hmx / (float)win_x) * N);
-	hj = (int)(((win_y - hmy) / (float)win_y) * N);
+	// hi = (int)((hmx / (float)win_x) * N);
+	// hj = (int)(((win_y - hmy) / (float)win_y) * N);
 
 	if (mouse_release[0])
 	{
@@ -589,9 +650,9 @@ static void key_func(unsigned char key, int x, int y)
 		break;
 
 	case 's':
-		scene_type = (scene_type + 1) % 4; // toggle between scenes
+		scene_type = (scene_type + 1) % 5; // toggle between scenes
 		init_system();
-		printf("Switched to %s scene.\n", scene_type == 0 ? "cloth" : (scene_type == 1 ? "hair" : (scene_type == 2 ? "pendulum" : "ball")));
+		printf("Switched to %s scene.\n", scene_type == 0 ? "cloth" : (scene_type == 1 ? "hair" : (scene_type == 2 ? "pendulum" : (scene_type == 3 ? "ball" : "bridge"))));
 		break;
 
 	case 'r':
@@ -605,6 +666,44 @@ static void key_func(unsigned char key, int x, int y)
 			}
 		}
 		printf("Rod constraint now uses %s.\n", use_sqrt_rodConstraint ? "square root" : "squared distance");
+		break;
+
+	case 'g':
+		enableGravity = !enableGravity;
+		for (Force *f : fVector) {
+			if (dynamic_cast<GravityForce*>(f)) f->setEnabled(enableGravity);
+		}
+		printf("Gravity %s\n", enableGravity ? "enabled" : "disabled");
+		break;
+
+	case 't':
+		enableSpring = !enableSpring;
+		for (Force *f : fVector) {
+			if (dynamic_cast<SpringForce*>(f) || dynamic_cast<AngularSpring*>(f)) f->setEnabled(enableSpring);
+		}
+		printf("Springs %s\n", enableSpring ? "enabled" : "disabled");
+		break;
+
+	case 'y':
+		enableRod = !enableRod;
+		for (Constraint *c : cVector) {
+			if (dynamic_cast<RodConstraint*>(c)) c->setEnabled(enableRod);
+		}
+		printf("Rod Constraint %s\n", enableRod ? "enabled" : "disabled");
+		break;
+
+	case 'x':
+		enableWire = !enableWire;
+		for (Constraint *c : cVector) {
+			if (dynamic_cast<CircularWireConstraint*>(c)) c->setEnabled(enableWire);
+		}
+		printf("Wire Constraint %s\n", enableWire ? "enabled" : "disabled");
+		break;
+	
+	case 'a':
+		use_angular_springs_bridge = !use_angular_springs_bridge;
+		init_system();
+		printf("Angular Springs %s\n", use_angular_springs_bridge ? "enabled" : "disabled");
 		break;
 
 	case ' ':
@@ -743,6 +842,10 @@ static void key_func(unsigned char key, int x, int y)
 		printf("i/u       - Increase/decrease spring stiffness\n");
 		printf("k/j       - Increase/decrease spring damping\n");
 		printf("w         - Toggle wind force\n");
+		printf("g         - Toggle gravity force\n");
+		printf("t         - Toggle spring forces\n");
+		printf("y         - Toggle rod constraints\n");
+		printf("x         - Toggle circular wire constraints\n");
 		printf("s         - Switch between scenes\n");
 		printf("r         - Toggle sqrt formula for rod constraints\n");
 		printf("c         - Clear/reset simulation\n");
@@ -969,7 +1072,7 @@ int main(int argc, char **argv)
 	if (argc == 1)
 	{
 		N = 64;
-		dt = 0.05f;
+		dt = 0.03f;
 		d = 5.f;
 		fprintf(stderr, "Using defaults : N=%d dt=%g d=%g\n",
 				N, dt, d);
@@ -990,10 +1093,14 @@ int main(int argc, char **argv)
 	printf("v         - Open parameter modification menu in console\n");
 	printf("1/2/3/4/5 - Switch solver (Euler/Midpoint/RK4/ImplicitEuler/Verlet)\n");
 	printf("p/o       - Increase/decrease dt (timestep)\n");
-	printf("i/u       - Increase/decrease mouse spring stiffness\n");
-	printf("k/j       - Increase/decrease mouse damping\n");
+	printf("i/u       - Increase/decrease spring stiffness\n");
+	printf("k/j       - Increase/decrease damping\n");
 	printf("s         - Switch between scenes\n");
 	printf("r		  - Toggle between sqrt and squared formula for RodConstraint\n");
+	printf("g         - Toggle gravity force\n");
+	printf("t         - Toggle spring forces\n");
+	printf("y         - Toggle rod constraints\n");
+	printf("x         - Toggle circular wire constraints\n");
 	printf("w         - Toggle wind force\n");
 	printf("f         - Toggle fixing top row of cloth\n");
 	printf("c         - Clear/reset simulation\n");
